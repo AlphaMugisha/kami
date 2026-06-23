@@ -70,6 +70,11 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
     </div>
     
     <nav class="nav-menu">
+        <span class="nav-section">Overview</span>
+        <a href="dashboard.php" class="nav-link <?= $current_page == 'dashboard.php' ? 'active' : '' ?>">
+            <i class="ph-fill ph-squares-four"></i> My Shift
+        </a>
+
         <span class="nav-section">Checkout</span>
         <a href="index.php" class="nav-link <?= $current_page == 'index.php' ? 'active' : '' ?>">
             <i class="ph-fill ph-shopping-bag"></i> Sales Register
