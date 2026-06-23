@@ -192,7 +192,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
 
         /* ── 4-up stat grid ────────────────────────────────────── */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 24px; }
-        .stat-card { display: flex; flex-direction: column; gap: 14px; padding: 22px; min-height: 158px; cursor: pointer; }
+        .kpi-card { display: flex; flex-direction: column; gap: 14px; padding: 22px; min-height: 158px; cursor: pointer; }
         .stat-icon {
             width: 46px; height: 46px; border-radius: var(--kami-radius-md);
             display: flex; align-items: center; justify-content: center; font-size: 23px;
@@ -250,7 +250,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             .hero-cta { justify-content: center; }
             .clock-time { font-size: 46px; }
             .stats-grid { grid-template-columns: 1fr; gap: 14px; }
-            .stat-card { min-height: auto; }
+            .kpi-card { min-height: auto; }
             .briefing { flex-direction: column; align-items: flex-start; }
             .briefing-action { align-self: stretch; justify-content: center; }
 
@@ -316,7 +316,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
         <div class="stats-grid">
 
             <!-- 1. My Sales Today -->
-            <div class="card stat-card animate-fade-in" onclick="ozoneToast('My Takings', 'You have logged $<?= number_format($todaySales, 2) ?> today.', 'success')">
+            <div class="card kpi-card animate-fade-in" onclick="ozoneToast('My Takings', 'You have logged $<?= number_format($todaySales, 2) ?> today.', 'success')">
                 <div class="stat-icon"><i class="ph-fill ph-currency-dollar"></i></div>
                 <div class="stat-value" data-count-to="<?= $todaySales ?>" data-prefix="$" data-decimals="2">$<?= number_format($todaySales, 2) ?></div>
                 <div class="stat-sub">
@@ -330,7 +330,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 2. Shift Goal (progress) -->
-            <div class="card stat-card animate-fade-in" onclick="ozoneToast('Shift Goal', '$<?= number_format($todaySales, 0) ?> of $<?= number_format($shiftGoal, 0) ?> reached.', 'info')">
+            <div class="card kpi-card animate-fade-in" onclick="ozoneToast('Shift Goal', '$<?= number_format($todaySales, 0) ?> of $<?= number_format($shiftGoal, 0) ?> reached.', 'info')">
                 <div class="stat-icon info"><i class="ph-fill ph-target"></i></div>
                 <div class="stat-value"><?= round($goalProgress) ?>%</div>
                 <div class="stat-bar"><div class="stat-bar-fill" style="width: <?= $goalProgress ?>%;"></div></div>
@@ -339,7 +339,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 3. Transactions Today -->
-            <div class="card stat-card animate-fade-in" onclick="location.href='history.php'">
+            <div class="card kpi-card animate-fade-in" onclick="location.href='history.php'">
                 <div class="stat-icon success"><i class="ph-fill ph-receipt"></i></div>
                 <div class="stat-value"><?= $txCount ?></div>
                 <div class="stat-sub"><?= $txCount === 1 ? 'sale rung today' : 'sales rung today' ?></div>
@@ -347,7 +347,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 4. Pending Tables -->
-            <div class="card stat-card animate-fade-in" onclick="location.href='live_orders.php'">
+            <div class="card kpi-card animate-fade-in" onclick="location.href='live_orders.php'">
                 <div class="stat-icon <?= $pendingTables > 0 ? 'danger' : 'success' ?>">
                     <i class="ph-fill <?= $pendingTables > 0 ? 'ph-bell-ringing' : 'ph-check-circle' ?>"></i>
                 </div>

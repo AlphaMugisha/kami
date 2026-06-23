@@ -190,7 +190,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
 
         /* ── 4-up stat grid ────────────────────────────────────── */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 24px; }
-        .stat-card { display: flex; flex-direction: column; gap: 14px; padding: 22px; min-height: 158px; cursor: pointer; }
+        .kpi-card { display: flex; flex-direction: column; gap: 14px; padding: 22px; min-height: 158px; cursor: pointer; }
         .stat-icon {
             width: 46px; height: 46px; border-radius: var(--kami-radius-md);
             display: flex; align-items: center; justify-content: center; font-size: 23px;
@@ -248,7 +248,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             .hero-cta { justify-content: center; }
             .clock-time { font-size: 46px; }
             .stats-grid { grid-template-columns: 1fr; gap: 14px; }
-            .stat-card { min-height: auto; }
+            .kpi-card { min-height: auto; }
             .briefing { flex-direction: column; align-items: flex-start; }
             .briefing-action { align-self: stretch; justify-content: center; }
 
@@ -314,7 +314,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
         <div class="stats-grid">
 
             <!-- 1. Today's Sales -->
-            <div class="card stat-card animate-fade-in" onclick="ozoneToast('Revenue', 'Total logged today: $<?= number_format($todaySales, 2) ?>', 'success')">
+            <div class="card kpi-card animate-fade-in" onclick="ozoneToast('Revenue', 'Total logged today: $<?= number_format($todaySales, 2) ?>', 'success')">
                 <div class="stat-icon"><i class="ph-fill ph-currency-dollar"></i></div>
                 <div class="stat-value" data-count-to="<?= $todaySales ?>" data-prefix="$" data-decimals="2">$<?= number_format($todaySales, 2) ?></div>
                 <div class="stat-sub">
@@ -328,7 +328,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 2. Daily Goal (progress) -->
-            <div class="card stat-card animate-fade-in" onclick="ozoneToast('Daily Goal', '$<?= number_format($todaySales, 0) ?> of $<?= number_format($dailyGoal, 0) ?> reached.', 'info')">
+            <div class="card kpi-card animate-fade-in" onclick="ozoneToast('Daily Goal', '$<?= number_format($todaySales, 0) ?> of $<?= number_format($dailyGoal, 0) ?> reached.', 'info')">
                 <div class="stat-icon info"><i class="ph-fill ph-target"></i></div>
                 <div class="stat-value"><?= round($goalProgress) ?>%</div>
                 <div class="stat-bar"><div class="stat-bar-fill" style="width: <?= $goalProgress ?>%;"></div></div>
@@ -337,7 +337,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 3. Stock Alerts -->
-            <div class="card stat-card animate-fade-in" onclick="location.href='inventory.php'">
+            <div class="card kpi-card animate-fade-in" onclick="location.href='inventory.php'">
                 <div class="stat-icon <?= $lowStockCount > 0 ? 'danger' : 'success' ?>">
                     <i class="ph-fill <?= $lowStockCount > 0 ? 'ph-warning' : 'ph-check-circle' ?>"></i>
                 </div>
@@ -347,7 +347,7 @@ $quote = $quotes[(int)date('z') % count($quotes)];
             </div>
 
             <!-- 4. Active Cashiers -->
-            <div class="card stat-card animate-fade-in" onclick="ozoneToast('Team', '<?= $activeCashiers ?> of <?= $cashierTotal ?> cashiers active today.', 'info')">
+            <div class="card kpi-card animate-fade-in" onclick="ozoneToast('Team', '<?= $activeCashiers ?> of <?= $cashierTotal ?> cashiers active today.', 'info')">
                 <div class="stat-icon success"><i class="ph-fill ph-users-three"></i></div>
                 <div class="stat-value"><?= $activeCashiers ?><span style="font-size:18px; color: var(--kami-text-dim);">/<?= $cashierTotal ?></span></div>
                 <div class="stat-sub"><?= $txToday ?> transaction<?= $txToday === 1 ? '' : 's' ?> rung today</div>
