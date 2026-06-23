@@ -66,25 +66,6 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
 })();
 </script>
 
-<div class="dynamic-island-container">
-  <div class="dynamic-island" id="global-dynamic-island">
-    <div class="island-default-pill" id="global-island-default">
-      <span class="island-status-dot"></span>
-      <i class="ph-fill ph-lightning" style="font-size: 13px;"></i>
-      <span>System Synced</span>
-    </div>
-    <div class="dynamic-island-content" id="global-island-expanded" style="display: none; opacity: 0;">
-      <div class="dynamic-island-icon-pill" id="global-island-icon-wrapper">
-        <i class="ph-bold ph-bell" id="global-island-icon"></i>
-      </div>
-      <div class="dynamic-island-text">
-        <span class="dynamic-island-title" id="global-island-title">Operations Hub</span>
-        <span class="dynamic-island-desc" id="global-island-desc">System fully synchronized.</span>
-      </div>
-    </div>
-  </div>
-</div>
-
 <aside class="sidebar">
   <div class="brand">
     <div class="brand-icon"><i class="ph-fill ph-martini"></i></div>
@@ -139,69 +120,8 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
 <script src="../assets/js/ozone.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    // 2026 Springy Dynamic Status Island alert triggers
-    window.triggerDynamicIsland = function(title, message, type = 'accent') {
-        const island = document.getElementById('global-dynamic-island');
-        const defaultPill = document.getElementById('global-island-default');
-        const expandedContent = document.getElementById('global-island-expanded');
-        const iconWrapper = document.getElementById('global-island-icon-wrapper');
-        const icon = document.getElementById('global-island-icon');
-        const titleEl = document.getElementById('global-island-title');
-        const descEl = document.getElementById('global-island-desc');
-
-        if (!island || !defaultPill || !expandedContent) return;
-
-        // Reset class lists
-        island.className = 'dynamic-island';
-        
-        // Configuration types
-        if (type === 'success') {
-            island.classList.add('expanded', 'success-state');
-            iconWrapper.style.background = 'var(--kami-success-bg)';
-            iconWrapper.style.color = 'var(--kami-success)';
-            icon.className = 'ph-bold ph-check-circle';
-            titleEl.style.color = 'var(--kami-success)';
-        } else if (type === 'danger' || type === 'error') {
-            island.classList.add('expanded', 'danger-state');
-            iconWrapper.style.background = 'var(--kami-danger-bg)';
-            iconWrapper.style.color = 'var(--kami-danger)';
-            icon.className = 'ph-bold ph-warning-circle';
-            titleEl.style.color = 'var(--kami-danger)';
-        } else if (type === 'info') {
-            island.classList.add('expanded');
-            iconWrapper.style.background = 'var(--kami-info-bg)';
-            iconWrapper.style.color = 'var(--kami-info)';
-            icon.className = 'ph-bold ph-info';
-            titleEl.style.color = 'var(--kami-info)';
-        } else {
-            island.classList.add('expanded');
-            iconWrapper.style.background = 'var(--kami-accent-bg)';
-            iconWrapper.style.color = 'var(--kami-accent)';
-            icon.className = 'ph-bold ph-bell';
-            titleEl.style.color = 'var(--kami-accent)';
-        }
-
-        titleEl.innerText = title;
-        descEl.innerText = message;
-
-        // Bouncy spring transition swap
-        defaultPill.style.display = 'none';
-        expandedContent.style.display = 'flex';
-        setTimeout(() => {
-            expandedContent.style.opacity = '1';
-        }, 50);
-
-        // Auto collapse after 4 seconds
-        clearTimeout(window.islandTimeout);
-        window.islandTimeout = setTimeout(() => {
-            expandedContent.style.opacity = '0';
-            setTimeout(() => {
-                expandedContent.style.display = 'none';
-                defaultPill.style.display = 'flex';
-                island.className = 'dynamic-island';
-            }, 200);
-        }, 4000);
-    };
+    // Alerts route to the luxury toast stack (window.triggerDynamicIsland
+    // is provided by ozone.js as a back-compat shim -> ozoneToast).
 
     // Session-based greeting notification
     if (!sessionStorage.getItem('greeted')) {

@@ -34,19 +34,6 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
     flex-shrink: 0;
   }
 
-  /* 2. Fix the floating 'Terminal Active' Island */
-  .dynamic-island-container {
-    position: fixed !important;
-    top: 20px !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 99999 !important;
-    pointer-events: none; /* Stops it from blocking invisible clicks */
-  }
-  .dynamic-island {
-    pointer-events: auto; /* Allows you to click the actual notification */
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  }
 </style>
 
 <script>
@@ -74,25 +61,6 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
 <audio id="global-order-chime" preload="auto">
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
 </audio>
-
-<div class="dynamic-island-container">
-  <div class="dynamic-island" id="global-dynamic-island">
-    <div class="island-default-pill" id="global-island-default">
-      <span class="island-status-dot"></span>
-      <i class="ph-fill ph-lightning" style="font-size: 13px;"></i>
-      <span>Terminal Active</span>
-    </div>
-    <div class="dynamic-island-content" id="global-island-expanded" style="display: none; opacity: 0;">
-      <div class="dynamic-island-icon-pill" id="global-island-icon-wrapper">
-        <i class="ph-bold ph-bell" id="global-island-icon"></i>
-      </div>
-      <div class="dynamic-island-text">
-        <span class="dynamic-island-title" id="global-island-title">Terminal Hub</span>
-        <span class="dynamic-island-desc" id="global-island-desc">Secure connection established.</span>
-      </div>
-    </div>
-  </div>
-</div>
 
 <aside class="sidebar">
     <div class="brand">
@@ -152,63 +120,8 @@ $initials = strtoupper(substr($nameParts[0], 0, 1) . (isset($nameParts[1]) ? sub
 <script src="../assets/js/ozone.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    // Dynamic Status Island Logic
-    window.triggerDynamicIsland = function(title, message, type = 'accent') {
-        const island = document.getElementById('global-dynamic-island');
-        const defaultPill = document.getElementById('global-island-default');
-        const expandedContent = document.getElementById('global-island-expanded');
-        const iconWrapper = document.getElementById('global-island-icon-wrapper');
-        const icon = document.getElementById('global-island-icon');
-        const titleEl = document.getElementById('global-island-title');
-        const descEl = document.getElementById('global-island-desc');
-
-        if (!island || !defaultPill || !expandedContent) return;
-
-        island.className = 'dynamic-island';
-        
-        if (type === 'success') {
-            island.classList.add('expanded', 'success-state');
-            iconWrapper.style.background = 'var(--kami-success-bg)';
-            iconWrapper.style.color = 'var(--kami-success)';
-            icon.className = 'ph-bold ph-check-circle';
-            titleEl.style.color = 'var(--kami-success)';
-        } else if (type === 'danger' || type === 'error') {
-            island.classList.add('expanded', 'danger-state');
-            iconWrapper.style.background = 'var(--kami-danger-bg)';
-            iconWrapper.style.color = 'var(--kami-danger)';
-            icon.className = 'ph-bold ph-warning-circle';
-            titleEl.style.color = 'var(--kami-danger)';
-        } else if (type === 'info') {
-            island.classList.add('expanded');
-            iconWrapper.style.background = 'var(--kami-info-bg)';
-            iconWrapper.style.color = 'var(--kami-info)';
-            icon.className = 'ph-bold ph-info';
-            titleEl.style.color = 'var(--kami-info)';
-        } else {
-            island.classList.add('expanded');
-            iconWrapper.style.background = 'var(--kami-accent-bg)';
-            iconWrapper.style.color = 'var(--kami-accent)';
-            icon.className = 'ph-bold ph-bell';
-            titleEl.style.color = 'var(--kami-accent)';
-        }
-
-        titleEl.innerText = title;
-        descEl.innerText = message;
-
-        defaultPill.style.display = 'none';
-        expandedContent.style.display = 'flex';
-        setTimeout(() => { expandedContent.style.opacity = '1'; }, 50);
-
-        clearTimeout(window.islandTimeout);
-        window.islandTimeout = setTimeout(() => {
-            expandedContent.style.opacity = '0';
-            setTimeout(() => {
-                expandedContent.style.display = 'none';
-                defaultPill.style.display = 'flex';
-                island.className = 'dynamic-island';
-            }, 200);
-        }, 4000);
-    };
+    // Alerts route to the luxury toast stack (window.triggerDynamicIsland
+    // is provided by ozone.js as a back-compat shim -> ozoneToast).
 
     // ==========================================
     // GLOBAL BACKGROUND ORDER MONITOR

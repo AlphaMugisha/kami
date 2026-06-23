@@ -132,10 +132,15 @@
       el.classList.add('hide');
       setTimeout(function () { el.remove(); }, 500);
     }, 4200);
-    // Mirror into the existing Dynamic Island if present
-    if (typeof window.triggerDynamicIsland === 'function') {
-      try { window.triggerDynamicIsland(title, msg || '', type); } catch (e) {}
-    }
+  };
+
+  /* Back-compat shim: the old iOS "Dynamic Island" API now routes to
+     the luxury toast stack, so every existing triggerDynamicIsland()
+     call site (live-order chime, greeting, dashboard cards) keeps
+     working with the new look. */
+  window.triggerDynamicIsland = function (title, message, type) {
+    if (type === 'danger') type = 'error';
+    window.ozoneToast(title, message, type || 'accent');
   };
 
   /* ---------------------------------------------------------------
