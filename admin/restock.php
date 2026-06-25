@@ -112,7 +112,6 @@ require '../includes/staff_header.php';
         table.sheet tbody tr:hover td { background: rgba(255,255,255,0.015); }
 
         table.sheet td.rownum { width: 40px; text-align: center; color: var(--kami-text-dim); font-size: 12px; font-weight: 700; background: var(--kami-surface-3); }
-        table.sheet td.cell-margin { width: 92px; text-align: center; font-weight: 800; padding: 0 8px; }
         table.sheet td.cell-act { width: 44px; text-align: center; }
 
         table.sheet input.cell {
@@ -226,7 +225,6 @@ require '../includes/staff_header.php';
                                 <th style="width:120px;">Qty Bought</th>
                                 <th style="width:150px;">Restock Price ($)</th>
                                 <th style="width:150px;">Selling Price ($)</th>
-                                <th style="width:92px;text-align:center;">Margin</th>
                                 <th style="width:44px;"></th>
                             </tr>
                         </thead>
@@ -404,7 +402,6 @@ require '../includes/staff_header.php';
                 + '<td class="col-num"><input class="cell c-qty" type="number" min="0" step="1" placeholder="0"></td>'
                 + '<td class="col-num"><input class="cell c-buy" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="col-num"><input class="cell c-sell" type="number" min="0" step="0.01" placeholder="0.00"></td>'
-                + '<td class="cell-margin">—</td>'
                 + '<td class="cell-act"><button type="button" class="row-del" title="Delete row" onclick="removeRow(this)"><i class="ph ph-x"></i></button></td>';
         }
 
@@ -421,10 +418,9 @@ require '../includes/staff_header.php';
             tr.querySelectorAll('input.cell').forEach(function (inp) {
                 inp.addEventListener('input', function () {
                     if (inp.classList.contains('c-prod')) autofillRow(tr);
-                    recalc(tr); ensureTrailingRow(); renumber(); updateSummary();
+                    ensureTrailingRow(); renumber(); updateSummary();
                 });
             });
-            recalc(tr);
             return tr;
         }
 
@@ -455,16 +451,6 @@ require '../includes/staff_header.php';
             const sellInp = tr.querySelector('.c-sell');
             const known = PRODUCTS[key];
             if (known && known.selling > 0 && !sellInp.value) sellInp.value = known.selling.toFixed(2);
-        }
-
-        function recalc(tr) {
-            const b = parseFloat(tr.querySelector('.c-buy').value);
-            const s = parseFloat(tr.querySelector('.c-sell').value);
-            const cell = tr.querySelector('.cell-margin');
-            if (!b || b <= 0 || isNaN(s)) { cell.textContent = '—'; cell.style.color = 'var(--kami-text-dim)'; return; }
-            const m = ((s - b) / b) * 100;
-            cell.textContent = (m >= 0 ? '+' : '') + m.toFixed(1) + '%';
-            cell.style.color = m >= 0 ? '#10b981' : '#ef4444';
         }
 
         function updateSummary() {
@@ -523,7 +509,7 @@ require '../includes/staff_header.php';
                         if (inp) inp.value = (COLS[colIdx] === 'c-prod') ? val.trim() : cleanNum(val);
                     }
                 });
-                autofillRow(tr); recalc(tr);
+                autofillRow(tr);
             });
             ensureTrailingRow(); renumber(); updateSummary();
             toast('Pasted', lines.length + ' row(s) pasted. Review then Save All.', 'success');

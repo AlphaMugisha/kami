@@ -132,6 +132,10 @@ if ($staff_area === 'admin') {
         <span class="user-role"><?= htmlspecialchars($roleName) ?></span>
       </div>
     </div>
+
+    <a href="../logout.php" class="kami-logout-btn">
+      <i class="ph-bold ph-sign-out"></i><span>Log Out</span>
+    </a>
   </aside>
 
   <div class="kami-main">
