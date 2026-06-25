@@ -386,36 +386,260 @@ require '../includes/staff_header.php';
         </div>
     </div>
 
+    <!-- local SheetJS parser (works offline) for Excel/CSV import -->
+    <script src="../assets/js/xlsx.full.min.js"></script>
     <script>
-        /* Default purchase date = now (local) */
-        (function () {
-            var d = new Date();
-            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-            document.getElementById('rsDate').value = d.toISOString().slice(0, 16);
-        })();
+        /* name(lower) -> {id, selling}  for autocomplete + price prefill */
+        const PRODUCTS = <?= json_encode(array_reduce($products, function ($a, $p) {
+            $a[mb_strtolower($p['name'])] = ['id' => (int)$p['id'], 'selling' => (float)$p['selling_price']];
+            return $a;
+        }, [])) ?>;
 
-        /* Pre-fill selling price from product, live margin preview */
-        var rsProduct = document.getElementById('rsProduct');
-        var rsBuy = document.getElementById('rsBuy');
-        var rsSell = document.getElementById('rsSell');
-        var rsMargin = document.getElementById('rsMargin');
+        const COLS = ['c-prod', 'c-qty', 'c-buy', 'c-sell'];
+        const sheetBody = document.getElementById('sheetBody');
 
-        function recalcMargin() {
-            var b = parseFloat(rsBuy.value);
-            var s = parseFloat(rsSell.value);
-            if (!b || b <= 0 || isNaN(s)) { rsMargin.value = '—'; rsMargin.style.color = ''; return; }
-            var m = ((s - b) / b) * 100;
-            rsMargin.value = (m >= 0 ? '+' : '') + m.toFixed(1) + '%';
-            rsMargin.style.color = m >= 0 ? '#10b981' : '#ef4444';
+        function rowHtml() {
+            return '<td class="rownum"></td>'
+                + '<td class="col-prod"><input class="cell c-prod" list="productNames" placeholder="Product name"></td>'
+                + '<td class="col-num"><input class="cell c-qty" type="number" min="0" step="1" placeholder="0"></td>'
+                + '<td class="col-num"><input class="cell c-buy" type="number" min="0" step="0.01" placeholder="0.00"></td>'
+                + '<td class="col-num"><input class="cell c-sell" type="number" min="0" step="0.01" placeholder="0.00"></td>'
+                + '<td class="cell-margin">—</td>'
+                + '<td class="cell-act"><button type="button" class="row-del" title="Delete row" onclick="removeRow(this)"><i class="ph ph-x"></i></button></td>';
         }
-        rsProduct.addEventListener('change', function () {
-            var opt = rsProduct.options[rsProduct.selectedIndex];
-            var sell = opt ? opt.getAttribute('data-selling') : null;
-            if (sell && parseFloat(sell) > 0 && !rsSell.value) rsSell.value = parseFloat(sell).toFixed(2);
-            recalcMargin();
+
+        function addRow(vals) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = rowHtml();
+            sheetBody.appendChild(tr);
+            if (vals) {
+                tr.querySelector('.c-prod').value = vals.product || '';
+                tr.querySelector('.c-qty').value  = vals.qty  || '';
+                tr.querySelector('.c-buy').value  = vals.buy  || '';
+                tr.querySelector('.c-sell').value = vals.sell || '';
+            }
+            tr.querySelectorAll('input.cell').forEach(function (inp) {
+                inp.addEventListener('input', function () {
+                    if (inp.classList.contains('c-prod')) autofillRow(tr);
+                    recalc(tr); ensureTrailingRow(); renumber(); updateSummary();
+                });
+            });
+            recalc(tr);
+            return tr;
+        }
+
+        function removeRow(btn) {
+            btn.closest('tr').remove();
+            if (!sheetBody.children.length) addRow();
+            ensureTrailingRow(); renumber(); updateSummary();
+        }
+
+        function rowHasContent(tr) {
+            return COLS.some(function (c) { return tr.querySelector('.' + c).value.trim() !== ''; });
+        }
+
+        function ensureTrailingRow() {
+            const trs = sheetBody.children;
+            if (!trs.length) { addRow(); return; }
+            if (rowHasContent(trs[trs.length - 1])) addRow();
+        }
+
+        function renumber() {
+            Array.prototype.forEach.call(sheetBody.children, function (tr, i) {
+                tr.querySelector('.rownum').textContent = i + 1;
+            });
+        }
+
+        function autofillRow(tr) {
+            const key = tr.querySelector('.c-prod').value.trim().toLowerCase();
+            const sellInp = tr.querySelector('.c-sell');
+            const known = PRODUCTS[key];
+            if (known && known.selling > 0 && !sellInp.value) sellInp.value = known.selling.toFixed(2);
+        }
+
+        function recalc(tr) {
+            const b = parseFloat(tr.querySelector('.c-buy').value);
+            const s = parseFloat(tr.querySelector('.c-sell').value);
+            const cell = tr.querySelector('.cell-margin');
+            if (!b || b <= 0 || isNaN(s)) { cell.textContent = '—'; cell.style.color = 'var(--kami-text-dim)'; return; }
+            const m = ((s - b) / b) * 100;
+            cell.textContent = (m >= 0 ? '+' : '') + m.toFixed(1) + '%';
+            cell.style.color = m >= 0 ? '#10b981' : '#ef4444';
+        }
+
+        function updateSummary() {
+            let rows = 0, units = 0, spend = 0;
+            Array.prototype.forEach.call(sheetBody.children, function (tr) {
+                if (!rowHasContent(tr)) return;
+                rows++;
+                const q = parseFloat(tr.querySelector('.c-qty').value) || 0;
+                const b = parseFloat(tr.querySelector('.c-buy').value) || 0;
+                units += q; spend += q * b;
+            });
+            document.getElementById('sumRows').textContent = rows;
+            document.getElementById('sumUnits').textContent = units;
+            document.getElementById('sumSpend').textContent = '$' + spend.toFixed(2);
+        }
+
+        function clearGrid(silent) {
+            sheetBody.innerHTML = '';
+            for (let i = 0; i < 5; i++) addRow();
+            renumber(); updateSummary();
+            if (!silent) toast('Cleared', 'The sheet is empty again.', 'info');
+        }
+
+        function cleanNum(v) {
+            if (v === undefined || v === null) return '';
+            const s = String(v).replace(/[^0-9.\-]/g, '');
+            return s;
+        }
+
+        function toast(t, m, kind) {
+            if (window.triggerDynamicIsland) window.triggerDynamicIsland(t, m, kind || 'info');
+            else if (kind === 'error') alert(t + ': ' + m);
+        }
+
+        /* ---- Paste straight from Excel (tab/newline delimited) ---- */
+        sheetBody.addEventListener('paste', function (e) {
+            const text = (e.clipboardData || window.clipboardData).getData('text');
+            if (!text || (text.indexOf('\t') < 0 && text.indexOf('\n') < 0)) return; // single value -> normal paste
+            e.preventDefault();
+            const startCell = e.target;
+            let startCol = COLS.findIndex(function (c) { return startCell.classList.contains(c); });
+            if (startCol < 0) startCol = 0;
+            const startTr = startCell.closest('tr');
+            let startIdx = Array.prototype.indexOf.call(sheetBody.children, startTr);
+
+            const lines = text.replace(/\r/g, '').split('\n');
+            while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+
+            lines.forEach(function (line, r) {
+                let tr = sheetBody.children[startIdx + r];
+                if (!tr) tr = addRow();
+                line.split('\t').forEach(function (val, c) {
+                    const colIdx = startCol + c;
+                    if (colIdx < COLS.length) {
+                        const inp = tr.querySelector('.' + COLS[colIdx]);
+                        if (inp) inp.value = (COLS[colIdx] === 'c-prod') ? val.trim() : cleanNum(val);
+                    }
+                });
+                autofillRow(tr); recalc(tr);
+            });
+            ensureTrailingRow(); renumber(); updateSummary();
+            toast('Pasted', lines.length + ' row(s) pasted. Review then Save All.', 'success');
         });
-        rsBuy.addEventListener('input', recalcMargin);
-        rsSell.addEventListener('input', recalcMargin);
+
+        /* ---- Import Excel / CSV via SheetJS ---- */
+        function importSpreadsheet(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+                    loadRows(aoa);
+                } catch (err) {
+                    toast('Import failed', 'Could not read that file. ' + err.message, 'error');
+                }
+                input.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function detectColumns(h) {
+            const find = function (keys) {
+                return h.findIndex(function (c) { return keys.some(function (k) { return c === k || c.indexOf(k) >= 0; }); });
+            };
+            const product = find(['product', 'name', 'item']);
+            const qty     = find(['qty', 'quantity', 'units', 'bought']);
+            const buy     = find(['restock', 'buying', 'cost', 'buy']);
+            let   sell    = find(['selling', 'sell', 'retail']);
+            if (sell < 0) sell = h.findIndex(function (c) { return c === 'price'; });
+            if (product < 0 && qty < 0 && buy < 0 && sell < 0) return null; // headerless
+            return {
+                product: product >= 0 ? product : null,
+                qty:     qty     >= 0 ? qty     : null,
+                buy:     buy     >= 0 ? buy     : null,
+                sell:    sell    >= 0 ? sell    : null
+            };
+        }
+
+        function loadRows(aoa) {
+            if (!aoa || !aoa.length) { toast('Import', 'No rows found in that file.', 'error'); return; }
+            const header = aoa[0].map(function (x) { return String(x || '').toLowerCase().trim(); });
+            let map = detectColumns(header), dataRows;
+            if (map) { dataRows = aoa.slice(1); }
+            else { map = { product: 0, qty: 1, buy: 2, sell: 3 }; dataRows = aoa; }
+
+            clearGrid(true);
+            let added = 0;
+            dataRows.forEach(function (r) {
+                const product = map.product != null ? r[map.product] : '';
+                if (product === undefined || String(product).trim() === '') return;
+                addRow({
+                    product: String(product).trim(),
+                    qty:  map.qty  != null ? cleanNum(r[map.qty])  : '',
+                    buy:  map.buy  != null ? cleanNum(r[map.buy])  : '',
+                    sell: map.sell != null ? cleanNum(r[map.sell]) : ''
+                });
+                added++;
+            });
+            ensureTrailingRow(); renumber(); updateSummary();
+            toast('Imported', added + ' row(s) loaded. Review, then press Save All.', 'success');
+        }
+
+        /* ---- Collect + Save ---- */
+        function collectRows() {
+            const out = [];
+            Array.prototype.forEach.call(sheetBody.children, function (tr) {
+                const product = tr.querySelector('.c-prod').value.trim();
+                const qty  = tr.querySelector('.c-qty').value.trim();
+                const buy  = tr.querySelector('.c-buy').value.trim();
+                const sell = tr.querySelector('.c-sell').value.trim();
+                if (!product && !qty && !buy && !sell) return;
+                const known = PRODUCTS[product.toLowerCase()];
+                out.push({
+                    product: product,
+                    product_id: known ? known.id : null,
+                    qty: qty || 0,
+                    buying_price: buy || 0,
+                    selling_price: sell || 0
+                });
+            });
+            return out;
+        }
+
+        function saveAll() {
+            const rows = collectRows();
+            if (!rows.length) { toast('Nothing to save', 'Add at least one product row first.', 'error'); return; }
+            let restock = 0, reprice = 0;
+            rows.forEach(function (r) { (Number(r.qty) > 0) ? restock++ : reprice++; });
+            const msg = 'Save ' + rows.length + ' row(s)?\n\n'
+                + '• ' + restock + ' restock (adds stock + sets price)\n'
+                + '• ' + reprice + ' price-only update(s)\n\n'
+                + 'Selling prices will update everywhere in the system (POS, inventory, dashboards).';
+            if (!confirm(msg)) return;
+
+            const btn = document.getElementById('saveAllBtn');
+            btn.disabled = true;
+            const fd = new FormData();
+            fd.append('action', 'batch_save');
+            fd.append('ajax', '1');
+            fd.append('rows', JSON.stringify(rows));
+            fetch('process_restock.php', { method: 'POST', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d.success) { toast('Saved', d.message, 'success'); setTimeout(function () { location.reload(); }, 1100); }
+                    else { toast('Save failed', d.message, 'error'); btn.disabled = false; }
+                })
+                .catch(function () { toast('Network error', 'Could not reach the server.', 'error'); btn.disabled = false; });
+        }
+
+        /* seed the empty sheet */
+        for (let i = 0; i < 5; i++) addRow();
+        renumber(); updateSummary();
 
         /* Batch edit modal */
         function openBatchEdit(id, name, buy, sell) {
