@@ -126,6 +126,42 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
         .fade-up { opacity: 0; transform: translateY(30px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
         .fade-up.visible { opacity: 1; transform: translateY(0); }
 
+        /* ---- Micro-interactions & hover polish ---- */
+        .brand-logo { transition: letter-spacing 0.4s ease; }
+        .brand-logo:hover { letter-spacing: 0.18em; }
+
+        .btn { position: relative; overflow: hidden; }
+        .btn:hover { letter-spacing: 0.28em; }
+        .btn:active { transform: scale(0.97); }
+
+        /* Editorial image slow zoom on hover */
+        .image-reveal { overflow: hidden; }
+        .image-reveal img { transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1); will-change: transform; }
+        .image-reveal:hover img { transform: scale(1.06); }
+
+        /* Product title underline reveal + price shift */
+        .product-info h3 { position: relative; display: inline-block; transition: color 0.3s ease; }
+        .product-info h3::after {
+            content: ''; position: absolute; left: 0; bottom: -4px; height: 1px; width: 0;
+            background: var(--accent-gold); transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .product-card:hover .product-info h3 { color: var(--accent-gold); }
+        .product-card:hover .product-info h3::after { width: 100%; }
+        .product-price { transition: transform 0.3s ease; }
+        .product-card:hover .product-price { transform: scale(1.06); }
+
+        /* Cart icon nudge */
+        .cart-icon i { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .cart-icon:hover i { transform: translateY(-2px) rotate(-8deg) scale(1.1); }
+
+        /* Footer social/links */
+        .footer-links a { display: inline-block; }
+        .footer-links a:hover { transform: translateX(4px); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .hero-bg img { animation: none; }
+        }
+
         @media (max-width: 900px) {
             .collection-grid, .editorial-split, .footer-grid { grid-template-columns: 1fr; }
             .shop-filters { display: none; } /* Hide filters on mobile for simplicity */
