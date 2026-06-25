@@ -100,6 +100,79 @@ if ($action === 'edit_batch') {
 }
 
 /* ================================================================
+   ACTION: batch_save — the Excel-style grid / import.
+   Accepts a JSON array of rows and commits them atomically:
+     - qty > 0  -> full restock (new batch, stock +, price sync)
+     - qty <= 0 -> price update only (re-price everywhere, no batch)
+   Unknown product names are auto-created.
+   ================================================================ */
+if ($action === 'batch_save') {
+    $rows = json_decode($_POST['rows'] ?? '[]', true);
+    if (!is_array($rows) || count($rows) === 0) {
+        respond(false, 'There are no rows to save.');
+    }
+
+    $restocked = 0; $repriced = 0; $created = 0;
+
+    try {
+        $pdo->beginTransaction();
+
+        foreach ($rows as $i => $r) {
+            $name  = trim((string)($r['product'] ?? ''));
+            $pidIn = (isset($r['product_id']) && $r['product_id']) ? (int)$r['product_id'] : null;
+            $qty   = (int)($r['qty'] ?? 0);
+            $buy   = (float)($r['buying_price'] ?? 0);
+            $sell  = (float)($r['selling_price'] ?? 0);
+
+            // Silently skip completely blank rows (trailing grid rows).
+            if ($name === '' && $qty <= 0 && $buy <= 0 && $sell <= 0) {
+                continue;
+            }
+
+            $line = $i + 1;
+            if ($name === '') {
+                throw new RuntimeException("Row {$line}: product name is missing.");
+            }
+            if ($sell <= 0) {
+                throw new RuntimeException("Row {$line} ({$name}): a selling price is required.");
+            }
+            if ($buy < 0 || $qty < 0) {
+                throw new RuntimeException("Row {$line} ({$name}): prices and quantity cannot be negative.");
+            }
+
+            $was_created = false;
+            $pid = resolve_or_create_product($pdo, $pidIn, $name, $sell, $buy, $was_created);
+            if ($was_created) $created++;
+
+            if ($qty > 0) {
+                log_restock($pdo, $pid, $qty, $buy, $sell, null, 'Bulk grid entry', $user_id);
+                $restocked++;
+            } else {
+                update_product_prices($pdo, $pid, $buy, $sell);
+                $repriced++;
+            }
+        }
+
+        if ($restocked === 0 && $repriced === 0) {
+            throw new RuntimeException('No usable rows found — please fill in at least one product.');
+        }
+
+        $pdo->commit();
+
+        $parts = [];
+        if ($restocked) $parts[] = "$restocked restock" . ($restocked === 1 ? '' : 's');
+        if ($repriced)  $parts[] = "$repriced price update" . ($repriced === 1 ? '' : 's');
+        if ($created)   $parts[] = "$created new product" . ($created === 1 ? '' : 's');
+        respond(true, 'Saved: ' . implode(', ', $parts) . '.', [
+            'restocked' => $restocked, 'repriced' => $repriced, 'created' => $created,
+        ]);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        respond(false, 'Nothing was saved. ' . $e->getMessage());
+    }
+}
+
+/* ================================================================
    ACTION: restock (default) — log a new purchase batch.
    ================================================================ */
 $product_id   = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);

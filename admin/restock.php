@@ -85,8 +85,50 @@ $page_title = 'Restock (Kurungura)';
 require '../includes/staff_header.php';
 ?>
     <style>
-        .restock-grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+        .restock-grid { display: grid; grid-template-columns: 1fr; gap: 20px; align-items: start; }
         .form-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+        /* ---- Excel-style editable grid ---- */
+        .sheet-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+        .sheet-toolbar .spacer { flex: 1; }
+        .sheet-hint { color: var(--kami-text-dim); font-size: 12.5px; margin: 0 0 14px; }
+        .sheet-hint b { color: var(--kami-text-muted); }
+
+        .sheet-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--kami-border); border-radius: var(--kami-radius-md); }
+        table.sheet { width: 100%; border-collapse: collapse; min-width: 720px; font-size: 14px; background: var(--kami-surface-2); }
+        table.sheet thead th {
+            position: sticky; top: 0; z-index: 2;
+            background: var(--kami-surface-3); color: var(--kami-text-muted);
+            font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+            text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--kami-border);
+            border-right: 1px solid var(--kami-border); white-space: nowrap;
+        }
+        table.sheet thead th:last-child { border-right: none; }
+        table.sheet td {
+            padding: 0; border-bottom: 1px solid var(--kami-border); border-right: 1px solid var(--kami-border);
+            vertical-align: middle;
+        }
+        table.sheet td:last-child { border-right: none; }
+        table.sheet tbody tr:hover td { background: rgba(255,255,255,0.015); }
+
+        table.sheet td.rownum { width: 40px; text-align: center; color: var(--kami-text-dim); font-size: 12px; font-weight: 700; background: var(--kami-surface-3); }
+        table.sheet td.cell-margin { width: 92px; text-align: center; font-weight: 800; padding: 0 8px; }
+        table.sheet td.cell-act { width: 44px; text-align: center; }
+
+        table.sheet input.cell {
+            width: 100%; box-sizing: border-box; border: none; outline: none; background: transparent;
+            color: var(--kami-text); font: inherit; padding: 11px 12px;
+        }
+        table.sheet input.cell:focus { background: var(--kami-accent-bg); box-shadow: inset 0 0 0 2px var(--kami-accent); }
+        table.sheet input.cell::placeholder { color: var(--kami-text-dim); }
+        table.sheet td.col-prod { min-width: 240px; }
+        table.sheet td.col-num input { text-align: right; }
+
+        .row-del { background: none; border: none; color: var(--kami-text-dim); cursor: pointer; font-size: 16px; padding: 6px; border-radius: 6px; display: inline-flex; }
+        .row-del:hover { color: #ef4444; background: rgba(239,68,68,0.12); }
+
+        .sheet-summary { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 13px; color: var(--kami-text-muted); }
+        .sheet-summary b { color: var(--kami-text); }
 
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .data-table { width: 100%; border-collapse: collapse; min-width: 760px; }
@@ -139,64 +181,64 @@ require '../includes/staff_header.php';
         <h1 class="kami-page-title">Restock · Kurungura</h1>
         <p class="kami-page-sub">Record every stock purchase as its own batch — cost, retail price and remaining units, kept per batch so you always know your margin.</p>
 
+        <!-- product name list for the grid's autocomplete + name→id/price map -->
+        <datalist id="productNames">
+            <?php foreach ($products as $p): ?>
+                <option value="<?= htmlspecialchars($p['name']) ?>"></option>
+            <?php endforeach; ?>
+        </datalist>
+
         <div class="restock-grid animate-fade-in">
 
-            <!-- ===================== ENTRY FORM ===================== -->
+            <!-- ===================== EXCEL-STYLE ENTRY GRID ===================== -->
             <div class="card glass">
-                <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
-                    <h3><i class="ph-bold ph-shopping-cart-simple"></i> Add New Restock</h3>
+                <div class="card-header" style="border:none; padding:0; margin-bottom: 14px;">
+                    <h3><i class="ph-bold ph-table"></i> Restock Sheet <span style="color:var(--kami-text-dim);font-weight:500;font-size:14px;">(works like Excel)</span></h3>
                 </div>
 
-                <form action="process_restock.php" method="POST" id="restockForm">
-                    <div class="form-group">
-                        <label class="form-label">Product</label>
-                        <select name="product_id" id="rsProduct" class="form-select" required>
-                            <option value="">— Select a product —</option>
-                            <?php foreach ($products as $p): ?>
-                                <option value="<?= (int)$p['id'] ?>"
-                                        data-selling="<?= htmlspecialchars((string)$p['selling_price']) ?>">
-                                    <?= htmlspecialchars($p['name']) ?> · stock: <?= (int)$p['stock'] ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                <p class="sheet-hint">
+                    Type or <b>paste straight from Excel</b> into the grid. Set a <b>Selling Price</b> and it updates everywhere
+                    (POS, inventory, dashboards) the moment you save. Leave <b>Qty</b> empty to only change the price without adding stock.
+                    Unknown products are created automatically.
+                </p>
 
-                    <div class="form-row-grid">
-                        <div class="form-group">
-                            <label class="form-label">Quantity Bought</label>
-                            <input type="number" name="quantity" id="rsQty" class="form-input" min="1" required placeholder="0">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Buying Price ($/unit)</label>
-                            <input type="number" step="0.01" min="0" name="buying_price" id="rsBuy" class="form-input" required placeholder="0.00">
-                        </div>
-                    </div>
-
-                    <div class="form-row-grid">
-                        <div class="form-group">
-                            <label class="form-label">Selling Price ($/unit)</label>
-                            <input type="number" step="0.01" min="0" name="selling_price" id="rsSell" class="form-input" required placeholder="0.00">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Margin</label>
-                            <input type="text" id="rsMargin" class="form-input" readonly value="—" style="font-weight:800;">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Purchase Date</label>
-                        <input type="datetime-local" name="purchased_at" id="rsDate" class="form-input">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Notes <span style="color:var(--kami-text-dim);font-weight:400;">(supplier, invoice ref…)</span></label>
-                        <input type="text" name="notes" class="form-input" placeholder="Optional" autocomplete="off">
-                    </div>
-
-                    <button type="submit" class="btn btn-primary btn-block" style="margin-top: 8px;">
-                        <i class="ph-bold ph-plus-circle"></i> <span>Log Restock</span>
+                <div class="sheet-toolbar">
+                    <button type="button" class="btn btn-primary" onclick="addRow()"><i class="ph-bold ph-plus"></i> Add Row</button>
+                    <button type="button" class="btn" style="background:var(--kami-surface-3);color:var(--kami-text);" onclick="document.getElementById('xlsxFile').click()">
+                        <i class="ph-bold ph-microsoft-excel-logo"></i> Import Excel / CSV
                     </button>
-                </form>
+                    <input type="file" id="xlsxFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="importSpreadsheet(this)">
+                    <button type="button" class="btn" style="background:var(--kami-surface-3);color:var(--kami-text);" onclick="clearGrid()">
+                        <i class="ph-bold ph-eraser"></i> Clear
+                    </button>
+                    <span class="spacer"></span>
+                    <button type="button" class="btn btn-primary" id="saveAllBtn" onclick="saveAll()">
+                        <i class="ph-bold ph-floppy-disk"></i> <span>Save All</span>
+                    </button>
+                </div>
+
+                <div class="sheet-wrap">
+                    <table class="sheet">
+                        <thead>
+                            <tr>
+                                <th class="rownum">#</th>
+                                <th>Product</th>
+                                <th style="width:120px;">Qty Bought</th>
+                                <th style="width:150px;">Restock Price ($)</th>
+                                <th style="width:150px;">Selling Price ($)</th>
+                                <th style="width:92px;text-align:center;">Margin</th>
+                                <th style="width:44px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="sheetBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="sheet-summary">
+                    <span>Filled rows: <b id="sumRows">0</b></span>
+                    <span>Total units: <b id="sumUnits">0</b></span>
+                    <span>Total spend: <b id="sumSpend">$0.00</b></span>
+                </div>
             </div>
 
             <!-- ===================== HISTORY LEDGER ===================== -->

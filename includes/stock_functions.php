@@ -177,3 +177,86 @@ function margin_percent(float $buying_price, float $selling_price): ?float
     }
     return (($selling_price - $buying_price) / $buying_price) * 100;
 }
+
+/**
+ * Generate a unique SKU from a product name (for products created on import).
+ */
+function generate_sku(PDO $pdo, string $name): string
+{
+    $base = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', substr($name, 0, 6)));
+    if ($base === '') $base = 'PROD';
+    $check = $pdo->prepare("SELECT 1 FROM products WHERE sku = :s");
+    do {
+        $sku = $base . '-' . mt_rand(1000, 9999);
+        $check->execute(['s' => $sku]);
+    } while ($check->fetchColumn() !== false);
+    return $sku;
+}
+
+/**
+ * Resolve a product by id or name; create it if it does not exist yet.
+ * Used by the Excel-style bulk importer so a pasted/imported price list
+ * "just works" even when it contains brand-new products.
+ *
+ * @param bool $was_created  set by-reference to true if a new product was made
+ * @return int the resolved product id
+ */
+function resolve_or_create_product(
+    PDO $pdo,
+    ?int $product_id,
+    string $name,
+    float $selling_price,
+    float $buying_price,
+    bool &$was_created = false
+): int {
+    $was_created = false;
+
+    // 1. Explicit id wins (the grid sends it when she picks a known product).
+    if ($product_id) {
+        $s = $pdo->prepare("SELECT id FROM products WHERE id = :id");
+        $s->execute(['id' => $product_id]);
+        $found = $s->fetchColumn();
+        if ($found !== false) return (int)$found;
+    }
+
+    // 2. Match by name (case-insensitive).
+    $name = trim($name);
+    if ($name === '') {
+        throw new InvalidArgumentException('Product name is required.');
+    }
+    $s = $pdo->prepare("SELECT id FROM products WHERE LOWER(name) = LOWER(:n) LIMIT 1");
+    $s->execute(['n' => $name]);
+    $found = $s->fetchColumn();
+    if ($found !== false) return (int)$found;
+
+    // 3. Create it (no stock yet — log_restock / price update handles the rest).
+    $sku = generate_sku($pdo, $name);
+    $ins = $pdo->prepare(
+        "INSERT INTO products (sku, name, category, price, buying_price, selling_price, stock)
+         VALUES (:sku, :name, 'Imported', :price, :buy, :sell, 0)"
+    );
+    $ins->execute([
+        'sku'   => $sku,
+        'name'  => $name,
+        'price' => $selling_price,
+        'buy'   => $buying_price,
+        'sell'  => $selling_price,
+    ]);
+    $was_created = true;
+    return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Re-price a product everywhere WITHOUT adding stock (no batch).
+ * Keeps products.price == selling_price so the POS register, inventory
+ * and dashboards all reflect the new price immediately.
+ */
+function update_product_prices(PDO $pdo, int $product_id, float $buying_price, float $selling_price): void
+{
+    $s = $pdo->prepare(
+        "UPDATE products
+            SET buying_price = :buy, selling_price = :sell, price = :sell2
+          WHERE id = :id"
+    );
+    $s->execute(['buy' => $buying_price, 'sell' => $selling_price, 'sell2' => $selling_price, 'id' => $product_id]);
+}
