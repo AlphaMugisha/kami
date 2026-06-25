@@ -8,7 +8,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'cashier') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 $cashier_id = $_SESSION['user_id'];
 $userName = $_SESSION['full_name'];
@@ -23,23 +22,13 @@ $stmt = $pdo->prepare("
 $stmt->execute(['id' => $cashier_id]);
 $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal | Shift History</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
-</head>
-<body class="app-layout">
-    <?php include '../includes/cashier_sidebar.php'; ?>
-    
-    <main class="main-content">
-        <header class="page-header">
-            <h1>My Shift History</h1>
-            <p>Personal audit ledger of all past operational shifts</p>
-        </header>
+<?php
+$staff_area = 'cashier';
+$page_title = 'Shift History';
+require '../includes/staff_header.php';
+?>
+        <h1 class="kami-page-title">My Shift History</h1>
+        <p class="kami-page-sub">Personal audit ledger of all past operational shifts.</p>
 
         <div class="card glass animate-fade-in responsive-table-wrapper">
             <div class="card-header borderless-header">
@@ -103,6 +92,4 @@ $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </table>
             </div>
         </div>
-    </main>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

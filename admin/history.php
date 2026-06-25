@@ -9,7 +9,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 // ADVANCED SQL: Fetch ALL shifts from ALL cashiers
 $stmt = $pdo->query("
@@ -21,14 +20,12 @@ $stmt = $pdo->query("
 ");
 $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Ozone Admin | Global Shift History</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'admin';
+$page_title = 'Shift History';
+require '../includes/staff_header.php';
+?>
+<?php include '../includes/preloader.php'; ?>
     <style>
         /* Force strict box-sizing universally to stop padding from breaking the grid */
         *, *::before, *::after { box-sizing: border-box; }
@@ -131,24 +128,9 @@ $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
             .badge { margin-top: 4px; }
         }
     </style>
-</head>
-<body class="app-layout">
-    
-    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-    <?php include '../includes/sidebar.php'; ?>
-    
-    <main class="main-content">
-        
-        <div class="page-header-container">
-            <button class="mobile-menu-btn" onclick="toggleSidebar()">
-                <i class="ph ph-list" style="font-size: 24px;"></i>
-            </button>
-            <header class="page-header">
-                <h1>Global Shift History</h1>
-                <p>Master ledger of all employee shifts across the entire system</p>
-            </header>
-        </div>
+        <h1 class="kami-page-title">Global Shift History</h1>
+        <p class="kami-page-sub">Master ledger of all employee shifts across the entire system.</p>
 
         <div class="card glass animate-fade-in">
             <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
@@ -225,12 +207,4 @@ $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </table>
             </div>
         </div>
-    </main>
-
-    <script>
-        function toggleSidebar() {
-            document.body.classList.toggle('sidebar-open');
-        }
-    </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

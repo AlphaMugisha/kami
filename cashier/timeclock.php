@@ -9,7 +9,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'cashier') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 $cashier_id = $_SESSION['user_id'];
 $success_msg = '';
@@ -45,14 +44,11 @@ $stmt->execute(['id' => $cashier_id]);
 $active_shift = $stmt->fetch(PDO::FETCH_ASSOC);
 
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal | Time Clock</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'cashier';
+$page_title = 'Time Clock';
+require '../includes/staff_header.php';
+?>
     <style>
         .clock-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 70vh; }
         .digital-clock { font-family: 'Outfit', monospace; font-size: 84px; font-weight: 900; color: var(--kami-text); letter-spacing: -2px; margin-bottom: 8px; text-shadow: 0 0 40px rgba(255,255,255,0.1); }
@@ -62,11 +58,7 @@ $active_shift = $stmt->fetch(PDO::FETCH_ASSOC);
         .input-massive { width: 100%; background: rgba(0,0,0,0.3); border: 2px solid var(--kami-border); color: var(--kami-accent); font-size: 32px; font-weight: 800; text-align: center; padding: 20px; border-radius: 16px; margin-bottom: 24px; outline: none; }
         .input-massive:focus { border-color: var(--kami-accent); box-shadow: 0 0 20px rgba(217, 119, 6, 0.2); }
     </style>
-</head>
-<body class="app-layout">
-    <?php include '../includes/cashier_sidebar.php'; ?>
-    
-    <main class="main-content">
+
         <div class="clock-container animate-fade-in">
             <div class="digital-clock" id="live-clock">00:00:00</div>
             <div class="date-display" id="live-date">Loading Date...</div>
@@ -105,7 +97,6 @@ $active_shift = $stmt->fetch(PDO::FETCH_ASSOC);
                 <?php endif; ?>
             </div>
         </div>
-    </main>
 
     <script>
         // Live Clock Script
@@ -133,5 +124,4 @@ $active_shift = $stmt->fetch(PDO::FETCH_ASSOC);
             });
         <?php endif; ?>
     </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

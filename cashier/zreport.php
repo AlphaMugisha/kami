@@ -9,7 +9,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'cashier') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 $cashier_id = $_SESSION['user_id'];
 $cashier_name = $_SESSION['full_name'];
@@ -58,14 +57,11 @@ if ($shift) {
     }
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal | Daily Z-Report</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'cashier';
+$page_title = 'Daily Z-Report';
+require '../includes/staff_header.php';
+?>
     <style>
         .report-container { max-width: 600px; margin: 0 auto; }
         .receipt-paper { background: #ffffff; color: #000000; padding: 40px; border-radius: 8px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); font-family: 'Courier New', Courier, monospace; position: relative; }
@@ -80,15 +76,11 @@ if ($shift) {
         .bg-closed { background: #ef4444; }
         @media print { body * { visibility: hidden; } .receipt-paper, .receipt-paper * { visibility: visible; } .receipt-paper { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; padding: 0; } .receipt-paper::after { display: none; } .no-print { display: none !important; } }
     </style>
-</head>
-<body class="app-layout">
-    <?php include '../includes/cashier_sidebar.php'; ?>
-    
-    <main class="main-content">
-        <header class="page-header no-print">
-            <h1>End of Day Z-Report</h1>
-            <p>Financial reconciliation and shift drawer auditing</p>
-        </header>
+
+        <div class="no-print">
+            <h1 class="kami-page-title">End of Day Z-Report</h1>
+            <p class="kami-page-sub">Financial reconciliation and shift drawer auditing.</p>
+        </div>
 
         <div class="report-container animate-fade-in">
             <?php if (!$shift): ?>
@@ -167,11 +159,9 @@ if ($shift) {
                 </div>
             <?php endif; ?>
         </div>
-    </main>
     <?php if ($success_msg): ?>
         <script>
             document.addEventListener('DOMContentLoaded', () => { if(window.triggerDynamicIsland) window.triggerDynamicIsland('Audit Sent', '<?= htmlspecialchars($success_msg) ?>', 'success'); });
         </script>
     <?php endif; ?>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

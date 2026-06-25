@@ -8,10 +8,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit();
 }
 
-if (file_exists('../includes/preloader.php')) { 
-    include '../includes/preloader.php'; 
-}
-
 require_once '../config/db.php';
 
 $success_msg = '';
@@ -88,22 +84,12 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $userName = $_SESSION['full_name'] ?? 'Admin';
 $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ozone Admin | Inventory Directory</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'admin';
+$page_title = 'Inventory';
+require '../includes/staff_header.php';
+?>
     <style>
-        /* --- MAIN SCROLL FIX --- */
-        .main-content {
-            height: 100vh;
-            overflow-y: auto;
-            padding-bottom: 60px !important; /* Prevents button chopping */
-        }
-
         /* --- DESKTOP LAYOUT --- */
         .inventory-grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
         .live-stock-list { min-height: 400px; }
@@ -228,24 +214,9 @@ $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
             .modal-content { padding: 24px; width: 90%; }
         }
     </style>
-</head>
-<body class="app-layout">
-    
-    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-    <?php include '../includes/sidebar.php'; ?>
-    
-    <main class="main-content">
-        
-        <div class="page-header-container">
-            <button class="mobile-menu-btn" onclick="toggleSidebar()">
-                <i class="ph ph-list" style="font-size: 24px;"></i>
-            </button>
-            <header class="page-header">
-                <h1>Inventory Directory</h1>
-                <p>Add and track Ozone Liquor catalog items in local server database</p>
-            </header>
-        </div>
+        <h1 class="kami-page-title">Inventory Directory</h1>
+        <p class="kami-page-sub">Add and track Ozone Liquor catalog items in the local database.</p>
 
         <div class="inventory-grid animate-fade-in">
             <div class="card glass">
@@ -359,7 +330,6 @@ $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
                 </div>
             </div>
         </div>
-    </main>
 
     <div class="modal-overlay-ui" id="editModal">
         <div class="modal-content">
@@ -416,5 +386,4 @@ $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
             });
         <?php endif; ?>
     </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

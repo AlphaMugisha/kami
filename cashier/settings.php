@@ -9,7 +9,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'cashier') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 $cashier_id = $_SESSION['user_id'];
 $success_msg = '';
@@ -53,27 +52,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
     }
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal | Security Settings</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
-    <style>
-        .settings-container { display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 600px; margin: 0 auto; }
-        .form-group label { display: block; font-size: 13px; font-weight: 700; color: var(--kami-text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
-    </style>
-</head>
-<body class="app-layout">
-    <?php include '../includes/cashier_sidebar.php'; ?>
-    
-    <main class="main-content">
-        <header class="page-header">
-            <h1>Account Security</h1>
-            <p>Manage your terminal access credentials and private password</p>
-        </header>
+<?php
+$staff_area  = 'cashier';
+$page_title  = 'Security Settings';
+$page_styles = '<style>
+    .settings-container { display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 600px; margin: 0 auto; }
+    .settings-container .form-group label { display: block; font-size: 13px; font-weight: 700; color: var(--kami-text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>';
+require '../includes/staff_header.php';
+?>
+        <h1 class="kami-page-title">Account Security</h1>
+        <p class="kami-page-sub">Manage your terminal access credentials and private password.</p>
 
         <div class="settings-container animate-fade-in">
             <div class="card glass">
@@ -104,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
                 </form>
             </div>
         </div>
-    </main>
 
     <?php if ($success_msg): ?>
         <script>
@@ -120,5 +108,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
             });
         </script>
     <?php endif; ?>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

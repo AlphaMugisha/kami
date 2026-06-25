@@ -223,3 +223,49 @@
   // Re-scan helper for AJAX-injected content
   window.ozoneRefresh = observeAll;
 })();
+
+/* ================================================================
+   STAFF SHELL ADD-ONS  ·  live clock + mobile sidebar drawer
+   Appended separately so the idempotent IIFE above is untouched.
+   ================================================================ */
+function initLiveClock() {
+  var clocks = document.querySelectorAll('.live-clock');
+  if (!clocks.length) return;
+  var dateEls = document.querySelectorAll('.clock-date');
+  function tick() {
+    var now = new Date();
+    var h = String(now.getHours() % 12 || 12).padStart(2, '0');
+    var m = String(now.getMinutes()).padStart(2, '0');
+    var s = String(now.getSeconds()).padStart(2, '0');
+    var ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+    var markup = h + ':' + m +
+      '<span class="clock-seconds">:' + s + '</span>' +
+      '<span class="clock-ampm">' + ampm + '</span>';
+    clocks.forEach(function (el) { el.innerHTML = markup; });
+    if (dateEls.length) {
+      var d = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      dateEls.forEach(function (el) { el.textContent = d; });
+    }
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+/* Mobile drawer: hamburger toggles body.kami-nav-open; backdrop closes it. */
+function initStaffShell() {
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('.kami-mobile-toggle')) {
+      document.body.classList.toggle('kami-nav-open');
+    } else if (e.target.closest('.kami-backdrop') ||
+               (document.body.classList.contains('kami-nav-open') && e.target.closest('.kami-nav .nav-link'))) {
+      document.body.classList.remove('kami-nav-open');
+    }
+  });
+}
+
+(function () {
+  function boot() { initLiveClock(); initStaffShell(); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else { boot(); }
+})();

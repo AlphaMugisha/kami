@@ -14,7 +14,7 @@
    Cormorant Garamond = luxury serif display (ties to the storefront)
    Plus Jakarta Sans   = crisp UI / data sans
    Outfit              = geometric numerics & headings              */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
 /* ── Design Tokens ─────────────────────────────────────────────── */
 :root {
@@ -100,6 +100,13 @@
   --font-serif:         'Cormorant Garamond', Georgia, serif;
   --font-sans:          'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display:       'Outfit', sans-serif;
+  --font-mono:          'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Staff-shell shape tokens (structure only — no new colors) */
+  --radius-card:        16px;
+  --radius-pill:        999px;
+  --staff-sidebar-w:    180px;
+  --staff-topbar-h:     66px;
 }
 
 /* ── Light Mode (optional, toggled via settings) ─────────────────── */
@@ -889,4 +896,234 @@ input:checked + .slider:before { transform: translateX(23px); }
   .toast-stack { left: 16px; right: 16px; bottom: 16px; }
   .toast { min-width: 0; max-width: none; }
   .modal { padding: 24px; }
+}
+
+/* ================================================================
+   STAFF SHELL  ·  fixed 180px sidebar + fixed topbar
+   ----------------------------------------------------------------
+   New layout anatomy rendered by includes/staff_header.php and
+   staff_footer.php. Structure only — every color is a var(--kami-*)
+   token that already existed in this file. Coexists with the legacy
+   .app-layout / .sidebar / .main-content shell (kept for reference).
+   ================================================================ */
+.kami-layout { min-height: 100vh; }
+
+/* ── Fixed left sidebar ─────────────────────────────────────────── */
+.kami-sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--staff-sidebar-w);
+  background: var(--kami-bg-2);
+  border-right: 1px solid var(--kami-border);
+  display: flex; flex-direction: column;
+  padding: 16px 12px;
+  z-index: 60;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  transition: left 0.32s var(--kami-ease);
+}
+.kami-sidebar::-webkit-scrollbar { display: none; }
+
+.kami-sidebar .kami-brand {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 8px 18px; flex-shrink: 0;
+}
+.kami-sidebar .kami-brand-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  background: var(--kami-accent-grad); color: var(--kami-on-accent);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--kami-radius-md); font-size: 19px;
+  box-shadow: var(--kami-glow);
+}
+.kami-sidebar .kami-brand-name {
+  font-family: var(--font-serif); font-size: 21px; font-weight: 600;
+  letter-spacing: 0.05em; white-space: nowrap;
+}
+
+.kami-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.kami-nav .nav-section-label {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--kami-text-dim);
+  padding: 16px 12px 6px; white-space: nowrap;
+}
+.kami-nav .nav-link {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 12px; border-radius: var(--kami-radius-md);
+  font-size: 13.5px; font-weight: 600; color: var(--kami-text-muted);
+  text-decoration: none; white-space: nowrap; cursor: pointer;
+  transition: color var(--kami-transition), background var(--kami-transition);
+}
+.kami-nav .nav-link i { font-size: 18px; flex-shrink: 0; }
+.kami-nav .nav-link:hover { color: var(--kami-text); background: var(--kami-surface-2); }
+.kami-nav .nav-link.active {
+  color: var(--kami-on-accent);
+  background: var(--kami-accent-grad);
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(224,184,92,0.22);
+}
+.kami-nav .nav-link.active i { color: var(--kami-on-accent); }
+.kami-nav .nav-dot {
+  margin-left: auto; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--kami-success); box-shadow: 0 0 8px var(--kami-success);
+  animation: pulse 2s infinite;
+}
+
+/* Pinned user card at the bottom of the sidebar */
+.kami-sidebar .kami-side-user {
+  margin-top: auto; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; border-radius: var(--kami-radius-md);
+  background: var(--kami-surface-2); border: 1px solid var(--kami-border);
+}
+.kami-side-user .user-avatar { width: 36px; height: 36px; font-size: 13px; }
+.kami-side-user .user-info { flex: 1; min-width: 0; }
+.kami-side-user .user-name { font-size: 13px; font-weight: 700; color: var(--kami-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kami-side-user .user-role { font-size: 11px; color: var(--kami-text-muted); }
+
+/* ── Fixed topbar ───────────────────────────────────────────────── */
+.kami-topbar {
+  position: fixed; top: 0; left: var(--staff-sidebar-w); right: 0;
+  height: var(--staff-topbar-h);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 28px; z-index: 50;
+  background: var(--kami-glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)); backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--kami-border);
+}
+.kami-topbar .topbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.kami-topbar .icon-btn {
+  width: 42px; height: 42px; border-radius: var(--kami-radius-full);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--kami-surface-2); border: 1px solid var(--kami-border);
+  color: var(--kami-text-muted); font-size: 18px; cursor: pointer;
+  transition: all var(--kami-transition); text-decoration: none;
+}
+.kami-topbar .icon-btn:hover { color: var(--kami-accent); border-color: var(--kami-accent-border); background: var(--kami-accent-bg); transform: translateY(-2px); }
+.kami-topbar .topbar-avatar {
+  width: 42px; height: 42px; border-radius: var(--kami-radius-full);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--kami-accent-grad); color: var(--kami-on-accent);
+  font-family: var(--font-display); font-weight: 800; font-size: 14px;
+  border: 1px solid var(--kami-accent-border); text-decoration: none; flex-shrink: 0;
+}
+.kami-mobile-toggle {
+  display: none; width: 42px; height: 42px; align-items: center; justify-content: center;
+  background: var(--kami-surface-2); border: 1px solid var(--kami-border);
+  border-radius: var(--kami-radius-md); color: var(--kami-text); font-size: 22px; cursor: pointer;
+}
+
+/* ── Main column ────────────────────────────────────────────────── */
+.kami-main { margin-left: var(--staff-sidebar-w); padding-top: var(--staff-topbar-h); min-height: 100vh; }
+.kami-content { padding: 28px; max-width: 1400px; margin: 0 auto; }
+.kami-page-title { font-family: var(--font-serif); font-size: 34px; font-weight: 600; letter-spacing: 0.01em; margin-bottom: 4px; }
+.kami-page-sub { color: var(--kami-text-muted); font-size: 15px; margin-bottom: 24px; }
+
+/* ── Hero banner (greeting + live clock) ────────────────────────── */
+.kami-hero {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius-card);
+  padding: 36px 40px; margin-bottom: 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 32px; flex-wrap: wrap;
+  border: 1px solid var(--kami-accent-border);
+  box-shadow: var(--kami-shadow-md);
+  background:
+    radial-gradient(120% 140% at 88% 0%, rgba(240, 206, 126, 0.55), transparent 55%),
+    radial-gradient(120% 160% at 0% 120%, rgba(120, 80, 16, 0.55), transparent 60%),
+    linear-gradient(120deg, #C8912F 0%, #A9761E 48%, #6E4E12 100%);
+}
+.kami-hero .hero-left { position: relative; z-index: 2; max-width: 560px; display: flex; flex-direction: column; align-items: flex-start; }
+.kami-hero .hero-greeting { font-family: var(--font-display); font-size: clamp(28px, 3.4vw, 40px); font-weight: 800; line-height: 1.07; letter-spacing: -0.02em; color: #1A1206; }
+.kami-hero .hero-tagline { font-size: 16px; font-weight: 600; color: rgba(26,18,6,0.78); margin: 10px 0 18px; }
+.kami-hero .hero-quote { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-serif); font-style: italic; font-size: 16px; color: rgba(26,18,6,0.9); background: rgba(255,250,240,0.28); border: 1px solid rgba(26,18,6,0.14); padding: 8px 16px; border-radius: var(--kami-radius-full); margin-bottom: 20px; }
+.kami-hero .hero-cta { background: #1A1206; color: #FFF6E0; border: 1px solid rgba(255,255,255,0.1); padding: 12px 22px; border-radius: var(--kami-radius-full); font-family: var(--font-sans); font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; gap: 9px; text-decoration: none; cursor: pointer; transition: all var(--kami-transition); box-shadow: var(--kami-shadow-sm); }
+.kami-hero .hero-cta:hover { transform: translateY(-2px); gap: 13px; box-shadow: var(--kami-shadow-md); }
+.kami-hero .hero-right { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 14px; }
+.kami-hero .clock-card {
+  background: rgba(14,10,4,0.42); border: 1px solid rgba(255,246,224,0.22);
+  border-radius: var(--kami-radius-lg); padding: 20px 30px; text-align: center;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); min-width: 240px;
+}
+.kami-hero .live-clock {
+  font-family: var(--font-mono);
+  font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em; color: #FFF6E0; text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+  font-variant-numeric: tabular-nums;
+}
+.live-clock .clock-seconds { font-size: 0.42em; font-weight: 600; color: rgba(255,246,224,0.65); }
+.live-clock .clock-ampm { font-size: 0.3em; font-weight: 700; color: rgba(255,246,224,0.75); margin-left: 0.4em; vertical-align: middle; letter-spacing: 0.08em; }
+.kami-hero .clock-date { margin-top: 12px; display: inline-block; font-size: 13px; font-weight: 700; color: #1A1206; background: rgba(255,246,224,0.82); padding: 5px 15px; border-radius: var(--kami-radius-full); }
+
+/* ── Stat-card row (4 equal cards) ──────────────────────────────── */
+.kami-stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 24px; }
+.kami-stat-card {
+  background: var(--kami-surface); border: 1px solid var(--kami-border);
+  border-radius: var(--radius-card); padding: 22px;
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: var(--kami-shadow-sm);
+  transition: transform var(--kami-transition), border-color var(--kami-transition), box-shadow var(--kami-transition);
+}
+.kami-stat-card:hover { transform: translateY(-3px); border-color: var(--kami-border-strong); box-shadow: var(--kami-shadow-md); }
+.kami-stat-card .stat-ic {
+  width: 42px; height: 42px; border-radius: var(--kami-radius-md);
+  display: flex; align-items: center; justify-content: center; font-size: 21px;
+  background: var(--kami-accent-bg); color: var(--kami-accent); border: 1px solid var(--kami-accent-border);
+}
+.kami-stat-card .stat-ic.info    { background: var(--kami-info-bg);    color: var(--kami-info);    border-color: var(--kami-info-border); }
+.kami-stat-card .stat-ic.success { background: var(--kami-success-bg); color: var(--kami-success); border-color: var(--kami-success-border); }
+.kami-stat-card .stat-ic.warning { background: var(--kami-warning-bg); color: var(--kami-warning); border-color: var(--kami-warning-border); }
+.kami-stat-card .stat-ic.danger  { background: var(--kami-danger-bg);  color: var(--kami-danger);  border-color: var(--kami-danger-border); }
+.kami-stat-card .stat-num { font-family: var(--font-display); font-size: 30px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--kami-text); }
+.kami-stat-card .stat-name { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--kami-text-muted); }
+.kami-stat-card .stat-detail { font-size: 13px; color: var(--kami-text-dim); margin-top: auto; }
+
+/* ── Activity-feed panel ────────────────────────────────────────── */
+.kami-feed-card {
+  background: var(--kami-surface); border: 1px solid var(--kami-border);
+  border-radius: var(--radius-card); padding: 24px 26px;
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: var(--kami-shadow-sm);
+}
+.kami-feed-card .feed-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.kami-feed-card .feed-head h3 { font-family: var(--font-display); font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.kami-feed-card .feed-head h3 i { color: var(--kami-accent); }
+.feed-item { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--kami-border); }
+.feed-item:last-child { border-bottom: none; }
+.feed-item .feed-ic { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--kami-radius-md); display: flex; align-items: center; justify-content: center; font-size: 18px; background: var(--kami-accent-bg); color: var(--kami-accent); border: 1px solid var(--kami-accent-border); }
+.feed-item .feed-meta { flex: 1; min-width: 0; }
+.feed-item .feed-title { font-size: 14px; font-weight: 700; color: var(--kami-text); }
+.feed-item .feed-sub { font-size: 12.5px; color: var(--kami-text-muted); }
+.feed-item .feed-amount { font-family: var(--font-display); font-weight: 800; font-size: 16px; color: var(--kami-text); font-variant-numeric: tabular-nums; }
+.feed-item .feed-time { font-size: 12px; color: var(--kami-text-dim); white-space: nowrap; }
+
+/* backdrop-filter fallback → solid surface */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .kami-stat-card, .kami-feed-card { background: var(--kami-surface-solid); }
+  .kami-topbar { background: var(--kami-bg-2); }
+}
+
+/* ── Mobile: sidebar collapses to a drawer behind a hamburger ───── */
+.kami-backdrop {
+  position: fixed; inset: 0; z-index: 55;
+  background: rgba(0,0,0,0.55);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  opacity: 0; pointer-events: none; transition: opacity var(--kami-transition);
+}
+@media (max-width: 768px) {
+  .kami-sidebar { left: calc(-1 * var(--staff-sidebar-w) - 14px); box-shadow: 4px 0 28px rgba(0,0,0,0.55); }
+  body.kami-nav-open .kami-sidebar { left: 0; }
+  body.kami-nav-open .kami-backdrop { opacity: 1; pointer-events: auto; }
+  .kami-topbar { left: 0; padding: 0 16px; }
+  .kami-main { margin-left: 0; }
+  .kami-content { padding: 18px 16px; }
+  .kami-mobile-toggle { display: inline-flex; }
+  .kami-stat-row { grid-template-columns: repeat(2, 1fr); }
+  .kami-hero { padding: 26px 22px; flex-direction: column; align-items: flex-start; }
+  .kami-hero .hero-right { align-items: stretch; width: 100%; }
+  .kami-hero .clock-card { width: 100%; min-width: 0; }
+  .kami-hero .hero-cta { justify-content: center; }
+}
+@media (max-width: 480px) {
+  .kami-stat-row { grid-template-columns: 1fr; }
 }

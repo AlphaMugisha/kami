@@ -9,7 +9,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
 }
 
 require_once '../config/db.php';
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 
 $userName = $_SESSION['full_name'] ?? 'Admin';
 $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
@@ -24,18 +23,13 @@ $stmt = $pdo->query("
 ");
 $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Ozone Admin | Audit Reports</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'admin';
+$page_title = 'Audit Reports';
+require '../includes/staff_header.php';
+?>
+<?php include '../includes/preloader.php'; ?>
     <style>
-        /* Force strict box-sizing universally to stop padding from breaking the grid */
-        *, *::before, *::after { box-sizing: border-box; }
-
         .shortage-badge { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; }
         .balanced-badge { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; }
 
@@ -142,24 +136,9 @@ $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
         }
     </style>
-</head>
-<body class="app-layout">
-    
-    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-    <?php include '../includes/sidebar.php'; ?>
-    
-    <main class="main-content">
-        
-        <div class="page-header-container">
-            <button class="mobile-menu-btn" onclick="toggleSidebar()">
-                <i class="ph ph-list" style="font-size: 24px;"></i>
-            </button>
-            <header class="page-header">
-                <h1>Audit Reports</h1>
-                <p>Review submitted end-of-day Z-Reports and register discrepancies</p>
-            </header>
-        </div>
+        <h1 class="kami-page-title">Audit Reports</h1>
+        <p class="kami-page-sub">Review submitted end-of-day Z-Reports and register discrepancies.</p>
 
         <div class="card glass animate-fade-in">
             <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
@@ -225,12 +204,4 @@ $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </table>
             </div>
         </div>
-    </main>
-
-    <script>
-        function toggleSidebar() {
-            document.body.classList.toggle('sidebar-open');
-        }
-    </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

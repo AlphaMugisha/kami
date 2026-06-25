@@ -9,33 +9,27 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit();
 }
 
-// Preloader hook
-if (file_exists('../includes/preloader.php')) { 
-    include '../includes/preloader.php'; 
-}
-
 require_once '../config/db.php';
 
 // Fetch all available products (including category) to inject into the JavaScript engine
 $stmt = $pdo->query("SELECT id, sku, name, category, price, stock FROM products WHERE stock > 0 ORDER BY name ASC");
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ozone Admin | POS Register</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'cashier';
+$page_title = 'Sales Register';
+require '../includes/staff_header.php';
+?>
     <style>
-        .pos-container { 
-            flex: 1; 
-            display: flex; 
-            gap: 20px; 
-            z-index: 10; 
-            overflow: hidden; 
-            height: calc(100vh - 40px); 
+        /* POS fills the viewport under the shell topbar */
+        .kami-content { max-width: none; padding: 20px; }
+        .pos-container {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            z-index: 10;
+            overflow: hidden;
+            height: calc(100vh - var(--staff-topbar-h) - 40px);
             padding: 0;
         }
 
@@ -254,10 +248,7 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 9999; display: none; align-items: center; justify-content: center; }
         .modal-content { background: var(--kami-surface-1); border: 1px solid var(--kami-border); width: 450px; border-radius: var(--kami-radius-xl); padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
     </style>
-</head>
-<body class="app-layout">
-    <?php include '../includes/cashier_sidebar.php'; ?>
-    
+
     <div class="pos-container animate-fade-in">
         <div class="products-pane card glass">
             <div class="pos-header-actions">
@@ -663,5 +654,4 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         renderProducts();
     </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

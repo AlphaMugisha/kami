@@ -99,16 +99,12 @@ if (isset($_GET['ajax'])) {
     }
 }
 
-if (file_exists('../includes/preloader.php')) { include '../includes/preloader.php'; }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Sommelier Feed | Kami PRO</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'cashier';
+$page_title = 'Live Orders';
+require '../includes/staff_header.php';
+?>
     <style>
         .ticket { display: flex; flex-direction: column; background: var(--kami-surface-2); border: 1px solid var(--kami-border); border-top: 4px solid var(--kami-accent); border-radius: 16px; padding: 20px; grid-column: span 4; transition: transform 0.2s; position: relative; }
         
@@ -163,23 +159,13 @@ if (file_exists('../includes/preloader.php')) { include '../includes/preloader.p
         .empty-state { grid-column: span 12; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 100px 20px; background: rgba(0,0,0,0.2); border: 2px dashed rgba(255,255,255,0.1); border-radius: 24px; text-align: center; }
         .empty-state-icon { width: 80px; height: 80px; background: rgba(255,255,255,0.05); color: var(--kami-text-muted); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 24px; }
     </style>
-</head>
-<body class="app-layout">
 
-    <?php include '../includes/cashier_sidebar.php'; ?>
-
-    <main class="main-content" style="height: 100vh; overflow-y: auto;">
-        <header class="page-header" style="margin-bottom: 24px;">
-            <div>
-                <h1 style="font-family: 'Space Grotesk'; font-size: 28px; margin-bottom: 4px;">Live Sommelier Feed</h1>
-                <p style="color: var(--kami-text-muted); font-size: 14px;">Real-time lounge requests and table service telemetry</p>
-            </div>
-        </header>
+        <h1 class="kami-page-title">Live Sommelier Feed</h1>
+        <p class="kami-page-sub">Real-time lounge requests and table service telemetry.</p>
 
         <div class="bento-grid animate-fade-in" id="orderFeed">
             <!-- Injected by JS -->
         </div>
-    </main>
 
     <script>
         const feed = document.getElementById('orderFeed');
@@ -319,5 +305,4 @@ if (file_exists('../includes/preloader.php')) { include '../includes/preloader.p
         fetchOrdersUI();
         setInterval(fetchOrdersUI, 3000);
     </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

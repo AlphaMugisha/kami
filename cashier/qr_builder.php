@@ -8,10 +8,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit();
 }
 
-if (file_exists('../includes/preloader.php')) { 
-    include '../includes/preloader.php'; 
-}
-
 // ============================================================================
 // BULLETPROOF LIVE URL DETECTOR
 // Automatically finds your live domain and routes exactly to the menu
@@ -29,22 +25,15 @@ if ($baseDir === '/' || $baseDir === '\\') {
 // The exact, unbreakable link to the VIP menu
 $liveMenuUrl = $protocol . "://" . $host . $baseDir . "/menu/index.php";
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ozone Admin | QR Table Cards</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,400&family=Space+Grotesk:wght@400;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+<?php
+$staff_area = 'cashier';
+$page_title = 'QR Generator';
+require '../includes/staff_header.php';
+?>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
-    
     <style>
-        .split-layout { display: flex; gap: 40px; height: calc(100vh - 100px); }
+        .split-layout { display: flex; gap: 40px; height: calc(100vh - 160px); }
         .controls-panel { width: 400px; background: var(--kami-surface-2); padding: 32px; border-radius: 16px; border: 1px solid var(--kami-border); display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
         .preview-panel { flex: 1; background: var(--kami-surface-1); border-radius: 16px; display: flex; justify-content: center; align-items: center; overflow-y: auto; padding: 40px; position: relative; border: 1px solid var(--kami-border); }
         
@@ -97,16 +86,9 @@ $liveMenuUrl = $protocol . "://" . $host . $baseDir . "/menu/index.php";
             }
         }
     </style>
-</head>
-<body class="app-layout">
-    
-    <?php include '../includes/cashier_sidebar.php'; ?>
 
-    <main class="main-content">
-        <header class="page-header" style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--kami-border);">
-            <h1 style="font-family: 'Space Grotesk'; font-size: 28px; margin-bottom: 4px;">QR Menu Generator</h1>
-            <p style="color: var(--kami-text-muted); font-size: 14px;">Generate and print physical table codes for VIP lounges.</p>
-        </header>
+        <h1 class="kami-page-title">QR Menu Generator</h1>
+        <p class="kami-page-sub">Generate and print physical table codes for VIP lounges.</p>
 
         <div class="split-layout">
             <div class="controls-panel">
@@ -143,7 +125,6 @@ $liveMenuUrl = $protocol . "://" . $host . $baseDir . "/menu/index.php";
                 </div>
             </div>
         </div>
-    </main>
 
     <script>
         let qrCodeObj = null;
@@ -173,5 +154,4 @@ $liveMenuUrl = $protocol . "://" . $host . $baseDir . "/menu/index.php";
         // Run immediately on load so the first card is ready
         window.onload = updateCard;
     </script>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

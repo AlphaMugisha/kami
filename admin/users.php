@@ -18,11 +18,6 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     exit();
 }
 
-// Preloader hook
-if (file_exists('../includes/preloader.php')) { 
-    include '../includes/preloader.php'; 
-}
-
 require_once '../config/db.php';
 
 $success_msg = '';
@@ -78,17 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
 $stmt = $pdo->query("SELECT id, full_name, username, role, created_at FROM users ORDER BY role ASC, created_at DESC");
 $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ozone Admin | Staff Directory</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
+<?php
+$staff_area = 'admin';
+$page_title = 'Staff Directory';
+require '../includes/staff_header.php';
+?>
     <style>
         /* Base Grid Setup */
-        .users-grid { 
+        .users-grid {
             display: grid; 
             grid-template-columns: minmax(300px, 360px) 1fr; 
             gap: 20px; 
@@ -262,25 +254,9 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             .data-table td[data-label="Actions"]::before { display: none; /* Hide 'Actions' text to make button full width */ }
         }
     </style>
-</head>
-<body class="app-layout">
-    
-    <!-- Sidebar Overlay Hook -->
-    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-    <?php include '../includes/sidebar.php'; ?>
-    
-    <main class="main-content">
-        <!-- Flex Header Container (Matched to Dashboard) -->
-        <div class="page-header-container animate-fade-in">
-            <button class="mobile-menu-btn" onclick="toggleSidebar()">
-                <i class="ph ph-list" style="font-size: 24px;"></i>
-            </button>
-            <header class="page-header">
-                <h1>Staff Accounts Directory</h1>
-                <p>Enroll system cashiers & configure operational permission levels</p>
-            </header>
-        </div>
+        <h1 class="kami-page-title">Staff Accounts Directory</h1>
+        <p class="kami-page-sub">Enroll system cashiers &amp; configure operational permission levels.</p>
 
         <div class="users-grid animate-fade-in">
             
@@ -378,14 +354,6 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
         </div>
-    </main>
-
-    <!-- Mobile Sidebar Toggle Script -->
-    <script>
-        function toggleSidebar() {
-            document.body.classList.toggle('sidebar-open');
-        }
-    </script>
 
     <?php if ($success_msg): ?>
         <script>
@@ -401,5 +369,4 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             });
         </script>
     <?php endif; ?>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>

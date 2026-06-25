@@ -45,34 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
     }
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ozone Admin | Advanced Settings</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="../assets/css/kami.css">
-    <style>
-        .settings-grid { 
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 20px; 
-            max-width: 1200px; 
-        }
-        @media (max-width: 1024px) { 
-            .settings-grid { grid-template-columns: 1fr; } 
-        }
-    </style>
-</head>
-<body class="app-layout">
-    <?php include '../includes/sidebar.php'; ?>
-
-    <main class="main-content">
-        <header class="page-header">
-            <h1>System Settings</h1>
-            <p>Configure local database profiles, accessibility parameters, and theme profiles</p>
-        </header>
+<?php
+$staff_area  = 'admin';
+$page_title  = 'System Settings';
+$page_styles = '<style>
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; }
+    @media (max-width: 1024px) { .settings-grid { grid-template-columns: 1fr; } }
+</style>';
+require '../includes/staff_header.php';
+?>
+        <h1 class="kami-page-title">System Settings</h1>
+        <p class="kami-page-sub">Configure database profiles, accessibility parameters, and theme profiles.</p>
 
         <div class="settings-grid animate-fade-in">
             
@@ -182,7 +165,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
             </div>
 
         </div>
-    </main>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -251,5 +233,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_password'])) {
             });
         </script>
     <?php endif; ?>
-</body>
-</html>
+<?php require '../includes/staff_footer.php'; ?>
