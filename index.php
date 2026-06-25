@@ -281,5 +281,6 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
             document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
         });
     </script>
+    <script src="assets/js/public-fx.js" defer></script>
 </body>
 </html> 

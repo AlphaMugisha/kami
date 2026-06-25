@@ -202,5 +202,6 @@ $menu_items = [
             });
         }
     </script>
+    <script src="../assets/js/public-fx.js" defer></script>
 </body>
 </html>

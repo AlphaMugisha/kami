@@ -104,5 +104,6 @@
         Return to Menu <i class="ph-bold ph-arrow-right"></i>
     </a>
 
+    <script src="assets/js/public-fx.js" defer></script>
 </body>
 </html>

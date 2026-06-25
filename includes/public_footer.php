@@ -97,3 +97,4 @@
         });
     });
 </script>
+<script src="assets/js/public-fx.js" defer></script>
