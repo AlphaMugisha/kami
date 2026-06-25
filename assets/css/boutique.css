@@ -262,3 +262,63 @@ footer { padding: 80px 60px 40px; border-top: 1px solid var(--border-fine); back
     .nav-links { gap: 18px; }
     .nav-links.secondary { display: none; }
 }
+
+/* ========================================================================
+   HOMEPAGE COMPONENTS — image-led collection cards, hero scroll cue,
+   editorial statement strip, newsletter. Used by index.php (and reusable).
+   ======================================================================== */
+
+/* Hero buttons row + scroll cue */
+.hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+.scroll-cue { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); z-index: 2; color: rgba(255,255,255,0.8); display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.25em; }
+.scroll-cue i { font-size: 22px; animation: cueBounce 2s infinite; }
+@keyframes cueBounce { 0%,100% { transform: translateY(0); opacity: 0.6; } 50% { transform: translateY(7px); opacity: 1; } }
+
+/* Editorial statement strip */
+.statement { text-align: center; max-width: 940px; margin: 0 auto; }
+.statement p.lead { font-family: var(--font-serif); font-size: clamp(26px, 3.4vw, 42px); line-height: 1.35; font-weight: 400; color: var(--text-charcoal); }
+.statement p.lead em { color: var(--accent-gold); font-style: italic; }
+
+/* Shop filters (homepage collection) */
+.shop-filters { display: flex; justify-content: center; flex-wrap: wrap; gap: 36px; list-style: none; margin: 0 auto 56px; border-bottom: 1px solid var(--border-fine); padding-bottom: 18px; max-width: 900px; }
+.shop-filters li { font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-secondary); cursor: pointer; transition: color 0.3s; position: relative; }
+.shop-filters li.active { color: var(--text-charcoal); font-weight: 600; }
+.shop-filters li.active::after { content: ''; position: absolute; bottom: -19px; left: 0; width: 100%; height: 1px; background: var(--text-charcoal); }
+.shop-filters li:hover { color: var(--text-charcoal); }
+
+/* Image-led collection grid */
+.collection-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; max-width: 1400px; margin: 0 auto; }
+.product-card { text-align: center; position: relative; }
+.product-image { height: 440px; margin-bottom: 24px; padding: 40px; background: var(--bg-paper); display: flex; align-items: center; justify-content: center; transition: all 0.4s ease; position: relative; overflow: hidden; }
+.product-image img { max-height: 100%; width: auto; object-fit: contain; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.1)); transition: transform 0.6s ease; }
+.add-to-bag { position: absolute; bottom: 0; left: 0; width: 100%; background: var(--text-charcoal); color: #fff; padding: 16px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; border: none; text-decoration: none; display: block; }
+.product-card:hover .product-image { background: #fff; box-shadow: 0 20px 40px rgba(0,0,0,0.05); }
+.product-card:hover .product-image img { transform: translateY(-10px) scale(1.03); }
+.product-card:hover .add-to-bag { transform: translateY(0); }
+.add-to-bag:hover { background: var(--accent-gold); }
+.product-meta { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+.product-info h3 { font-size: 24px; margin-bottom: 12px; position: relative; display: inline-block; transition: color 0.3s ease; }
+.product-info h3::after { content: ''; position: absolute; left: 0; bottom: -4px; height: 1px; width: 0; background: var(--accent-gold); transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.product-card:hover .product-info h3 { color: var(--accent-gold); }
+.product-card:hover .product-info h3::after { width: 100%; }
+.product-price { font-family: var(--font-serif); font-size: 22px; color: var(--text-charcoal); transition: transform 0.3s ease; }
+.product-card:hover .product-price { transform: scale(1.06); }
+
+/* Newsletter strip */
+.newsletter { text-align: center; max-width: 620px; margin: 0 auto; }
+.newsletter h2 { font-size: clamp(32px, 4vw, 48px); margin-bottom: 16px; }
+.newsletter-form { display: flex; gap: 0; margin-top: 32px; border: 1px solid var(--border-fine); background: #fff; }
+.newsletter-form input { flex: 1; padding: 18px 20px; border: none; background: transparent; font-family: var(--font-sans); font-size: 14px; color: var(--text-charcoal); outline: none; }
+.newsletter-form button { border: none; background: var(--text-charcoal); color: #fff; padding: 0 32px; font-family: var(--font-sans); font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; cursor: pointer; transition: background 0.3s ease; }
+.newsletter-form button:hover { background: var(--accent-gold); }
+.newsletter .fineprint { font-size: 12px; color: var(--text-secondary); margin-top: 16px; }
+
+@media (max-width: 900px) {
+    .collection-grid { grid-template-columns: 1fr; }
+    .product-image { height: 380px; }
+    .shop-filters { gap: 22px; }
+}
+@media (max-width: 620px) {
+    .newsletter-form { flex-direction: column; }
+    .newsletter-form button { padding: 16px; }
+}
