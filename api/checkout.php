@@ -2,6 +2,7 @@
 declare(strict_types=1);
 session_start();
 require_once '../config/db.php';
+require_once '../includes/stock_functions.php';
 
 header('Content-Type: application/json');
 
@@ -61,16 +62,22 @@ try {
 
     // 3. Loop again to insert line items and deduct stock
     foreach ($data['items'] as $item) {
-        // Log the line item
-        $stmt = $pdo->prepare("INSERT INTO sale_items (sale_id, product_id, qty, price) VALUES (:sid, :pid, :qty, :price)");
+        // FIFO: pull this quantity from the oldest batches first, capturing the
+        // source batch + weighted-average cost so each sale line is profit-traceable.
+        $fifo = deduct_stock_fifo((int)$item['id'], (int)$item['qty'], $pdo);
+
+        // Log the line item with batch traceability.
+        $stmt = $pdo->prepare("INSERT INTO sale_items (sale_id, product_id, qty, price, batch_id, buying_price) VALUES (:sid, :pid, :qty, :price, :batch, :buy)");
         $stmt->execute([
-            'sid' => $sale_id,
-            'pid' => $item['id'],
-            'qty' => $item['qty'],
-            'price' => $item['price'] // We can log the price it was sold at
+            'sid'   => $sale_id,
+            'pid'   => $item['id'],
+            'qty'   => $item['qty'],
+            'price' => $item['price'], // We can log the price it was sold at
+            'batch' => $fifo['batch_id'],
+            'buy'   => $fifo['avg_buying_price'],
         ]);
 
-        // Deduct inventory
+        // Deduct inventory (running cache the POS reads on every sale)
         $stmt = $pdo->prepare("UPDATE products SET stock = stock - :qty WHERE id = :id");
         $stmt->execute([
             'qty' => $item['qty'],

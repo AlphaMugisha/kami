@@ -9,6 +9,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 require_once '../config/db.php';
+require_once '../includes/stock_functions.php';
 
 $success_msg = '';
 $error_msg = '';
@@ -18,26 +19,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     $sku = filter_input(INPUT_POST, 'sku', FILTER_SANITIZE_STRING);
     $name = filter_input(INPUT_POST, 'name', FILTER_SANITIZE_STRING);
     $category = filter_input(INPUT_POST, 'category', FILTER_SANITIZE_STRING);
-    $price = filter_input(INPUT_POST, 'price', FILTER_VALIDATE_FLOAT);
+    $price = filter_input(INPUT_POST, 'price', FILTER_VALIDATE_FLOAT);   // selling price
+    $buying = filter_input(INPUT_POST, 'buying_price', FILTER_VALIDATE_FLOAT);
     $stock = filter_input(INPUT_POST, 'stock', FILTER_VALIDATE_INT);
+    if ($buying === false || $buying === null) $buying = 0.0;
 
     if ($sku && $name && $price !== false && $stock !== false) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO products (sku, name, category, price, stock) VALUES (:sku, :name, :category, :price, :stock)");
+            $pdo->beginTransaction();
+            // Create the product with its cached batch prices.
+            $stmt = $pdo->prepare(
+                "INSERT INTO products (sku, name, category, price, buying_price, selling_price, stock)
+                 VALUES (:sku, :name, :category, :price, :buying, :price, :stock)"
+            );
             $stmt->execute([
                 'sku' => $sku,
                 'name' => $name,
                 'category' => $category,
                 'price' => $price,
+                'buying' => $buying,
                 'stock' => $stock
             ]);
+            $new_pid = (int)$pdo->lastInsertId();
+
+            // Seed an opening batch so FIFO + profit tracking work from day one.
+            if ($stock > 0) {
+                log_restock($pdo, $new_pid, $stock, (float)$buying, (float)$price, null,
+                    'Opening stock (new product)', (int)$_SESSION['user_id']);
+                // log_restock also adds to stock; undo the double-count from the INSERT above.
+                $fix = $pdo->prepare("UPDATE products SET stock = :stock WHERE id = :id");
+                $fix->execute(['stock' => $stock, 'id' => $new_pid]);
+            }
+
+            $pdo->commit();
             $success_msg = "Product '$name' added successfully.";
         } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             if ($e->getCode() == 23000) {
                 $error_msg = "A product with SKU '$sku' already exists.";
             } else {
                 $error_msg = "Database error: " . $e->getMessage();
             }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $error_msg = "Could not add product: " . $e->getMessage();
         }
     } else {
         $error_msg = "Please fill all fields correctly.";
@@ -246,13 +271,18 @@ require '../includes/staff_header.php';
                     
                     <div class="form-row-grid">
                         <div class="form-group">
-                            <label class="form-label">Price ($ USD)</label>
-                            <input type="number" step="0.01" name="price" class="form-input" required placeholder="0.00">
+                            <label class="form-label">Buying Price ($)</label>
+                            <input type="number" step="0.01" min="0" name="buying_price" class="form-input" placeholder="0.00">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Initial Stock</label>
-                            <input type="number" name="stock" class="form-input" required placeholder="0">
+                            <label class="form-label">Selling Price ($)</label>
+                            <input type="number" step="0.01" name="price" class="form-input" required placeholder="0.00">
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Initial Stock</label>
+                        <input type="number" name="stock" class="form-input" required placeholder="0">
                     </div>
                     
                     <button type="submit" name="add_product" class="btn btn-primary btn-block" style="margin-top: 8px;">
@@ -274,21 +304,28 @@ require '../includes/staff_header.php';
                                 <th>SKU (Serial Key)</th>
                                 <th>Product Designation</th>
                                 <th>Category</th>
-                                <th>Price</th>
+                                <th>Buying</th>
+                                <th>Selling</th>
+                                <th>Margin</th>
                                 <th>Status</th>
-                                <th>Actions</th> 
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($products)): ?>
                                 <tr>
-                                    <td colspan="6" data-label="Status" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
+                                    <td colspan="8" data-label="Status" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
                                         <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px;"></i>
                                         <p>No products logged in database server.</p>
                                     </td>
                                 </tr>
                             <?php else: ?>
-                                <?php foreach ($products as $product): ?>
+                                <?php foreach ($products as $product):
+                                    $p_buy = (float)($product['buying_price'] ?? 0);
+                                    $p_sell = (float)($product['selling_price'] ?? 0);
+                                    if ($p_sell <= 0) $p_sell = (float)$product['price'];
+                                    $p_margin = margin_percent($p_buy, $p_sell);
+                                ?>
                                     <tr class="hover-scale">
                                         <td data-label="SKU" style="color: var(--kami-text-muted); font-family: monospace; font-size: 13px; font-weight: 700;">
                                             <?= htmlspecialchars($product['sku']) ?>
@@ -299,8 +336,20 @@ require '../includes/staff_header.php';
                                         <td data-label="Category">
                                             <span class="badge badge-info" style="font-size: 10px;"><?= htmlspecialchars($product['category']) ?></span>
                                         </td>
-                                        <td data-label="Price" style="font-weight: 700; color: var(--kami-accent);">
-                                            $<?= number_format((float)$product['price'], 2) ?>
+                                        <td data-label="Buying" style="color: var(--kami-text-muted);">
+                                            $<?= number_format($p_buy, 2) ?>
+                                        </td>
+                                        <td data-label="Selling" style="font-weight: 700; color: var(--kami-accent);">
+                                            $<?= number_format($p_sell, 2) ?>
+                                        </td>
+                                        <td data-label="Margin">
+                                            <?php if ($p_margin === null): ?>
+                                                <span style="color: var(--kami-text-dim); font-weight:700;">n/a</span>
+                                            <?php else: ?>
+                                                <span style="font-weight:800; color: <?= $p_margin >= 0 ? '#10b981' : '#ef4444' ?>;">
+                                                    <?= ($p_margin >= 0 ? '+' : '') . number_format($p_margin, 1) ?>%
+                                                </span>
+                                            <?php endif; ?>
                                         </td>
                                         <td data-label="Status">
                                             <?php if ($product['stock'] <= 5): ?>
@@ -311,6 +360,9 @@ require '../includes/staff_header.php';
                                         </td>
                                         <td data-label="Actions">
                                             <div class="action-btns">
+                                                <button type="button" class="btn-icon" title="Restock (Kurungura)" onclick='openRestockModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $p_sell ?>)'>
+                                                    <i class="ph ph-shopping-cart-simple"></i>
+                                                </button>
                                                 <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>)'>
                                                     <i class="ph ph-pencil-simple"></i>
                                                 </button>
@@ -358,10 +410,84 @@ require '../includes/staff_header.php';
         </div>
     </div>
 
+    <div class="modal-overlay-ui" id="restockModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Restock · Kurungura</h3>
+                <button class="modal-close" onclick="closeRestockModal()"><i class="ph ph-x"></i></button>
+            </div>
+            <p id="restockProductName" style="color: var(--kami-text-muted); margin-bottom: 20px; font-weight: 600;"></p>
+
+            <form id="quickRestockForm" onsubmit="return submitQuickRestock(event)">
+                <input type="hidden" name="ajax" value="1">
+                <input type="hidden" name="product_id" id="rsModalPid">
+                <div class="form-row-grid">
+                    <div class="form-group">
+                        <label class="form-label">Quantity Bought</label>
+                        <input type="number" min="1" name="quantity" id="rsModalQty" class="form-input" required placeholder="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Buying Price ($)</label>
+                        <input type="number" step="0.01" min="0" name="buying_price" id="rsModalBuy" class="form-input" required placeholder="0.00">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Selling Price ($)</label>
+                    <input type="number" step="0.01" min="0" name="selling_price" id="rsModalSell" class="form-input" required placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes <span style="color:var(--kami-text-dim);font-weight:400;">(supplier, invoice…)</span></label>
+                    <input type="text" name="notes" class="form-input" placeholder="Optional" autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="quickRestockBtn" style="margin-top: 12px;">
+                    <i class="ph-bold ph-plus-circle"></i> <span>Log Restock</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
     <script>
         function toggleSidebar() {
             document.body.classList.toggle('sidebar-open');
         }
+
+        /* ---- Quick restock modal (AJAX -> process_restock.php) ---- */
+        function openRestockModal(id, name, sellingPrice) {
+            document.getElementById('rsModalPid').value = id;
+            document.getElementById('restockProductName').innerText = name;
+            document.getElementById('rsModalQty').value = '';
+            document.getElementById('rsModalBuy').value = '';
+            document.getElementById('rsModalSell').value = (Number(sellingPrice) > 0) ? Number(sellingPrice).toFixed(2) : '';
+            document.getElementById('restockModal').classList.add('active');
+        }
+        function closeRestockModal() {
+            document.getElementById('restockModal').classList.remove('active');
+        }
+        async function submitQuickRestock(e) {
+            e.preventDefault();
+            var btn = document.getElementById('quickRestockBtn');
+            btn.disabled = true;
+            try {
+                var fd = new FormData(document.getElementById('quickRestockForm'));
+                var res = await fetch('process_restock.php', { method: 'POST', body: fd });
+                var data = await res.json();
+                if (data.success) {
+                    closeRestockModal();
+                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Replenished', data.message, 'success');
+                    setTimeout(function () { location.reload(); }, 900);
+                } else {
+                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Restock Failed', data.message || 'Unknown error', 'error');
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Network Error', 'Could not reach the server.', 'error');
+                btn.disabled = false;
+            }
+            return false;
+        }
+        document.getElementById('restockModal').addEventListener('click', function (e) {
+            if (e.target === this) closeRestockModal();
+        });
 
         function openEditModal(id, name, price, stock) {
             document.getElementById('editIdInput').value = id;

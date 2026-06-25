@@ -32,6 +32,7 @@ if ($staff_area === 'admin') {
         ],
         'Management & Audits' => [
             ['inventory.php', 'ph-package', 'Inventory'],
+            ['restock.php', 'ph-shopping-cart-simple', 'Restock'],
             ['reports.php', 'ph-archive', 'Audit Reports'],
             ['history.php', 'ph-books', 'Shift History'],
             ['users.php', 'ph-users-three', 'Users'],
