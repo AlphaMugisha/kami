@@ -1127,3 +1127,62 @@ input:checked + .slider:before { transform: translateX(23px); }
 @media (max-width: 480px) {
   .kami-stat-row { grid-template-columns: 1fr; }
 }
+
+/* ── Desktop: hover-reveal sidebar (collapsed to icons by default) ─
+   Pure CSS. Mobile (<=768px) keeps the hamburger drawer above and is
+   untouched. The sidebar is position:fixed so expanding on hover floats
+   OVER content — .kami-main / .kami-topbar stay pinned to the collapsed
+   width, so content never reflows or jumps. Labels collapse to zero
+   width (not just opacity) so icons stay centred and the bottom avatar
+   never clips; base overflow-x:hidden clips the labels during collapse. */
+@media (min-width: 769px) {
+  .kami-sidebar {
+    width: 60px;
+    padding-left: 10px; padding-right: 10px;
+    transition: width 0.25s var(--kami-ease), padding 0.25s var(--kami-ease);
+  }
+  .kami-sidebar:hover {
+    width: var(--staff-sidebar-w);          /* 180px */
+    padding-left: 12px; padding-right: 12px;
+  }
+
+  /* Fixed topbar + main column align to the collapsed rail */
+  .kami-topbar { left: 60px; }
+  .kami-main   { margin-left: 60px; }
+
+  /* Labels: collapse to zero width while idle, reveal on hover.
+     Brand icon, nav icons and the user avatar always stay visible. */
+  .kami-sidebar .kami-brand-name,
+  .kami-sidebar .nav-link span,
+  .kami-sidebar .nav-section-label,
+  .kami-sidebar .nav-dot,
+  .kami-sidebar .kami-side-user .user-info {
+    opacity: 0; width: 0; overflow: hidden; white-space: nowrap;
+    transition: opacity 0.18s var(--kami-ease);
+  }
+  .kami-sidebar:hover .kami-brand-name,
+  .kami-sidebar:hover .nav-link span,
+  .kami-sidebar:hover .nav-section-label,
+  .kami-sidebar:hover .nav-dot,
+  .kami-sidebar:hover .kami-side-user .user-info {
+    opacity: 1; width: auto;
+  }
+
+  /* Centre icons while collapsed, left-align them once expanded */
+  .kami-sidebar .nav-link,
+  .kami-sidebar .kami-brand,
+  .kami-sidebar .kami-side-user { justify-content: center; }
+  .kami-sidebar .nav-link { padding-left: 0; padding-right: 0; }
+  .kami-sidebar:hover .nav-link,
+  .kami-sidebar:hover .kami-brand,
+  .kami-sidebar:hover .kami-side-user { justify-content: flex-start; }
+  .kami-sidebar:hover .nav-link { padding-left: 12px; padding-right: 12px; }
+
+  /* Section labels must not leave tall empty gaps while collapsed */
+  .kami-sidebar .nav-section-label { height: 0; padding-top: 10px; padding-bottom: 0; }
+  .kami-sidebar:hover .nav-section-label { height: auto; padding: 16px 12px 6px; }
+
+  /* Strip the user-card chrome while collapsed so the avatar sits clean */
+  .kami-sidebar .kami-side-user { padding: 6px 0; background: transparent; border-color: transparent; }
+  .kami-sidebar:hover .kami-side-user { padding: 10px; background: var(--kami-surface-2); border-color: var(--kami-border); }
+}
