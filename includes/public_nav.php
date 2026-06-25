@@ -1,17 +1,26 @@
-<nav>
-    <div class="nav-container">
-        <a href="index.php" class="brand">
-            <i class="ph-fill ph-hexagon"></i>
-            Kami OS
+<?php
+/* Shared OZONE boutique navigation. Pages in subdirectories set $base = '../'
+   before including this file so links resolve from the site root.
+   Pages may set $nav_active ('menu'|'features'|'about'|'contact') to highlight
+   the current link. */
+$base = $base ?? '';
+$nav_active = $nav_active ?? '';
+$act = fn(string $key): string => $nav_active === $key ? 'class="active"' : '';
+?>
+<nav id="navbar">
+    <div class="nav-links">
+        <a href="<?= $base ?>menu/index.php" <?= $act('menu') ?>>Menu</a>
+        <a href="<?= $base ?>features.php" <?= $act('features') ?>>Experience</a>
+    </div>
+
+    <a href="<?= $base ?>index.php" class="brand-logo">OZONE</a>
+
+    <div class="nav-links secondary">
+        <a href="<?= $base ?>about.php" <?= $act('about') ?>>Heritage</a>
+        <a href="<?= $base ?>contact.php" <?= $act('contact') ?>>Contact</a>
+        <a href="<?= $base ?>login.php">Staff</a>
+        <a href="<?= $base ?>cart.php" class="cart-icon">
+            <i class="ph ph-shopping-bag" style="font-size: 18px;"></i>
         </a>
-        <div class="nav-links">
-            <a href="features.php" <?= basename($_SERVER['PHP_SELF']) == 'features.php' ? 'class="active"' : '' ?>>Features</a>
-            <a href="about.php" <?= basename($_SERVER['PHP_SELF']) == 'about.php' ? 'class="active"' : '' ?>>Company</a>
-            <a href="contact.php" <?= basename($_SERVER['PHP_SELF']) == 'contact.php' ? 'class="active"' : '' ?>>Contact</a>
-        </div>
-        <div class="nav-actions">
-            <a href="login.php" class="btn btn-glass">Log in</a>
-            <a href="contact.php" class="btn btn-primary" style="margin-left: 12px;">Contact Sales</a>
-        </div>
     </div>
 </nav>

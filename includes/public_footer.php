@@ -1,100 +1,74 @@
+<?php
+/* Shared OZONE boutique footer. Subdirectory pages set $base = '../' first. */
+$base = $base ?? '';
+?>
 <footer>
     <div class="footer-grid">
         <div class="footer-brand">
-            <a href="index.php" class="brand">
-                <i class="ph-fill ph-hexagon"></i>
-                Kami OS
-            </a>
-            <p>The enterprise-grade retail operations engine designed for high-velocity environments and absolute reliability.</p>
+            <h2>OZONE LIQUOR</h2>
+            <p>Purveyors of distinguished spirits and crafted cocktails. A boutique tasting house in the heart of Kigali, curating liquid history one pour at a time.</p>
         </div>
-        <div class="footer-col">
-            <h4>Product</h4>
-            <ul class="footer-links">
-                <li><a href="features.php">Point of Sale</a></li>
-                <li><a href="features.php">Inventory Sync</a></li>
-                <li><a href="features.php">Analytics</a></li>
-                <li><a href="#">Integrations</a></li>
+        <div class="footer-links">
+            <h4>Explore</h4>
+            <ul>
+                <li><a href="<?= $base ?>menu/index.php">The Collection</a></li>
+                <li><a href="<?= $base ?>features.php">Experience</a></li>
+                <li><a href="<?= $base ?>about.php">Our Heritage</a></li>
+                <li><a href="<?= $base ?>contact.php">Visit Us</a></li>
             </ul>
         </div>
-        <div class="footer-col">
-            <h4>Company</h4>
-            <ul class="footer-links">
-                <li><a href="about.php">About Us</a></li>
-                <li><a href="#">Careers</a></li>
-                <li><a href="#">Blog</a></li>
-                <li><a href="contact.php">Contact</a></li>
+        <div class="footer-links">
+            <h4>Visit</h4>
+            <ul>
+                <li><a href="<?= $base ?>contact.php">KN 4 Ave, Kigali</a></li>
+                <li><a href="tel:+250788000000">+250 788 000 000</a></li>
+                <li><a href="mailto:hello@ozoneliquor.rw">hello@ozoneliquor.rw</a></li>
+                <li><a href="<?= $base ?>contact.php">Private Events</a></li>
             </ul>
         </div>
-        <div class="footer-col">
-            <h4>Resources</h4>
-            <ul class="footer-links">
-                <li><a href="#">Documentation</a></li>
-                <li><a href="#">Help Center</a></li>
-                <li><a href="#">API Reference</a></li>
-                <li><a href="#">System Status</a></li>
-            </ul>
-        </div>
-        <div class="footer-col">
-            <h4>Legal</h4>
-            <ul class="footer-links">
-                <li><a href="#">Privacy Policy</a></li>
-                <li><a href="#">Terms of Service</a></li>
-                <li><a href="#">Security</a></li>
+        <div class="footer-links">
+            <h4>Connect</h4>
+            <ul>
+                <li><a href="#">Instagram</a></li>
+                <li><a href="#">Twitter / X</a></li>
+                <li><a href="#">Facebook</a></li>
+                <li><a href="<?= $base ?>login.php">Staff Terminal</a></li>
             </ul>
         </div>
     </div>
     <div class="footer-bottom">
-        <div>&copy; <?= date('Y') ?> Kami Systems Inc. All rights reserved.</div>
-        <div style="display: flex; gap: 24px;">
-            <a href="#" style="color: var(--text-tertiary);"><i class="ph-fill ph-twitter-logo" style="font-size: 20px;"></i></a>
-            <a href="#" style="color: var(--text-tertiary);"><i class="ph-fill ph-github-logo" style="font-size: 20px;"></i></a>
-            <a href="#" style="color: var(--text-tertiary);"><i class="ph-fill ph-linkedin-logo" style="font-size: 20px;"></i></a>
-        </div>
+        <div>&copy; <?= date('Y') ?> Ozone Liquor. All rights reserved.</div>
+        <div>Please enjoy responsibly. Not for sale to persons under 18.</div>
     </div>
 </footer>
 
 <script>
-    // Smooth sticky nav effect
-    window.addEventListener('scroll', () => {
-        const nav = document.querySelector('nav');
-        if (window.scrollY > 20) {
-            nav.classList.add('scrolled');
-        } else {
-            nav.classList.remove('scrolled');
+    // Sticky nav: switch from blend-mode overlay to solid bar after scrolling.
+    (function () {
+        var navbar = document.getElementById('navbar');
+        if (navbar) {
+            var onScroll = function () {
+                if (window.scrollY > 50) navbar.classList.add('scrolled');
+                else navbar.classList.remove('scrolled');
+            };
+            window.addEventListener('scroll', onScroll, { passive: true });
+            onScroll();
         }
-    });
 
-    // Scroll Reveal Animation Logic
-    document.addEventListener('DOMContentLoaded', () => {
-        const observerOptions = {
-            root: null,
-            rootMargin: '0px',
-            threshold: 0.1
-        };
-
-        const observer = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('active');
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, observerOptions);
-
-        document.querySelectorAll('.reveal').forEach(el => {
-            observer.observe(el);
-        });
-
-        // Mouse tracking for bento card glows
-        document.querySelectorAll('.bento-card').forEach(card => {
-            card.addEventListener('mousemove', e => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                card.style.setProperty('--mouse-x', `${x}px`);
-                card.style.setProperty('--mouse-y', `${y}px`);
-            });
-        });
-    });
+        // Scroll-reveal for .fade-up elements (public-fx.js defers to this).
+        if ('IntersectionObserver' in window) {
+            var io = new IntersectionObserver(function (entries, obs) {
+                entries.forEach(function (entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        obs.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+            document.querySelectorAll('.fade-up').forEach(function (el) { io.observe(el); });
+        } else {
+            document.querySelectorAll('.fade-up').forEach(function (el) { el.classList.add('visible'); });
+        }
+    })();
 </script>
-<script src="assets/js/public-fx.js" defer></script>
+<script src="<?= $base ?>assets/js/public-fx.js" defer></script>
