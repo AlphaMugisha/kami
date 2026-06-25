@@ -81,7 +81,7 @@ function page_link(int $p): string
 }
 
 $staff_area = 'admin';
-$page_title = 'Restock (Kurungura)';
+$page_title = 'Restock (Kurangura)';
 require '../includes/staff_header.php';
 ?>
     <style>
