@@ -224,6 +224,8 @@ $menu_categories = [
         </section>
     </main>
 
+    <?php $base = '../'; include '../includes/public_footer.php'; ?>
+
     <!-- ORDER BAR + DRAWER (wired to process_order.php) -->
     <div class="cart-trigger" id="cartTrigger" onclick="toggleDrawer()">
         <span>Review Order</span>
@@ -399,6 +401,5 @@ $menu_categories = [
             });
         }
     </script>
-    <script src="../assets/js/public-fx.js" defer></script>
 </body>
 </html>
