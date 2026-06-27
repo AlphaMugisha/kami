@@ -72,633 +72,709 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ozone Admin | Secure Entry Portal</title>
+    <title>Ozone Admin · Sign in</title>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            /* Dark Theme Variables */
-            --bg-grad-1: #0a0a14;
-            --bg-grad-2: #020205;
-            --card-bg: rgba(15, 15, 20, 0.6);
-            --text-primary: #ffffff;
-            --kami-text-muted: #8e8e9f;
-            --kami-accent: #FFB000;
-            --kami-danger: #FF453A;
-            --input-bg: rgba(255, 255, 255, 0.03);
-            --input-border: rgba(255, 255, 255, 0.1);
-            --grid-color: rgba(255, 255, 255, 0.03);
-            --kami-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            --kami-transition: 0.3s ease;
+            --accent: #C8911E;
+            --accent-hover: #B27E14;
+            --accent-soft: rgba(200, 145, 30, 0.12);
+            --danger: #D9342B;
+            --radius: 10px;
+            --ease: cubic-bezier(0.22, 1, 0.36, 1);
         }
 
-        html.light-mode {
-            /* Light Theme Variables */
-            --bg-grad-1: #f0f0f5;
-            --bg-grad-2: #e0e0e8;
-            --card-bg: rgba(255, 255, 255, 0.8);
-            --text-primary: #111118;
-            --kami-text-muted: #6e6e7f;
-            --kami-accent: #FF9500;
-            --input-bg: rgba(0, 0, 0, 0.03);
-            --input-border: rgba(0, 0, 0, 0.1);
-            --grid-color: rgba(0, 0, 0, 0.03);
+        /* Dark (default) */
+        html[data-theme="dark"] {
+            --bg: #0B0C0E;
+            --surface: #0B0C0E;
+            --text: #F4F5F6;
+            --text-soft: #A0A4AB;
+            --text-faint: #6A6E76;
+            --border: rgba(255, 255, 255, 0.10);
+            --border-strong: rgba(255, 255, 255, 0.18);
+            --field: rgba(255, 255, 255, 0.025);
+            --field-focus: rgba(255, 255, 255, 0.05);
         }
+
+        /* Light */
+        html[data-theme="light"] {
+            --bg: #FFFFFF;
+            --surface: #FFFFFF;
+            --text: #16181D;
+            --text-soft: #5A606B;
+            --text-faint: #8A909B;
+            --border: rgba(16, 18, 23, 0.10);
+            --border-strong: rgba(16, 18, 23, 0.18);
+            --field: rgba(16, 18, 23, 0.015);
+            --field-focus: rgba(16, 18, 23, 0.035);
+        }
+
+        * { box-sizing: border-box; }
 
         body {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            background: radial-gradient(circle at top right, var(--bg-grad-1), var(--bg-grad-2));
-            overflow: hidden;
-            padding: 20px;
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: var(--text-primary);
-            transition: background 0.5s ease, color 0.5s ease;
-            perspective: 1000px;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.4s var(--ease), color 0.4s var(--ease);
         }
 
-        /* Animated Cyber Grid Background */
-        body::before {
-            content: '';
-            position: absolute;
-            inset: -50%;
-            background-image: 
-                linear-gradient(var(--grid-color) 1px, transparent 1px),
-                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-            background-size: 50px 50px;
-            transform: rotateX(60deg) translateY(-100px) translateZ(-200px);
-            animation: gridMove 20s linear infinite;
-            z-index: -1;
-            pointer-events: none;
+        .shell {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 100vh;
         }
 
-        @keyframes gridMove {
-            0% { transform: rotateX(60deg) translateY(0) translateZ(-200px); }
-            100% { transform: rotateX(60deg) translateY(50px) translateZ(-200px); }
-        }
-
-        /* Desktop-First Login Card */
-        .login-card-wrapper {
-            width: 100%;
-            max-width: 480px;
-            transform-style: preserve-3d;
-            transition: transform 0.1s ease-out; 
-        }
-
-        .login-card {
-            background: var(--card-bg);
-            border: 1px solid var(--input-border);
-            border-radius: 24px;
-            box-shadow: 0 45px 120px rgba(0,0,0,0.4), 
-                        inset 0 0 20px rgba(0,0,0,0.1);
-            backdrop-filter: blur(40px);
-            -webkit-backdrop-filter: blur(40px);
-            padding: 48px 40px;
+        /* ============ LEFT — FORM PANEL ============ */
+        .auth {
             display: flex;
             flex-direction: column;
-            align-items: center;
+            padding: 40px clamp(40px, 6vw, 88px);
             position: relative;
-            transform: translateZ(20px); 
+            min-height: 100vh;
         }
 
-        /* Staggered entrance animations */
-        .stagger-1 { animation: slideUpFade 0.6s 0.1s both var(--kami-spring); }
-        .stagger-2 { animation: slideUpFade 0.6s 0.2s both var(--kami-spring); }
-        .stagger-3 { animation: slideUpFade 0.6s 0.3s both var(--kami-spring); }
-        .stagger-4 { animation: slideUpFade 0.6s 0.4s both var(--kami-spring); }
-
-        @keyframes slideUpFade {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Return to Lounge Button */
-        .return-lounge-btn {
-            position: fixed;
-            top: 24px;
-            left: 24px;
-            background: var(--input-bg);
-            border: 1px solid var(--input-border);
-            backdrop-filter: blur(10px);
-            padding: 10px 20px;
-            border-radius: 100px;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--kami-text-muted);
+        .auth__top {
             display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: auto;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text);
+        }
+
+        .brand__mark {
+            width: 38px;
+            height: 38px;
+            border-radius: 9px;
+            background: var(--text);
+            color: var(--bg);
+            display: grid;
+            place-items: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .brand__name {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+        .brand__sub {
+            font-size: 12px;
+            color: var(--text-faint);
+            font-weight: 500;
+        }
+
+        .top-actions { display: flex; align-items: center; gap: 8px; }
+
+        .ghost-btn {
+            height: 38px;
+            padding: 0 16px;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
-            text-decoration: none;
-            z-index: 1000;
-            transition: all 0.3s ease;
-        }
-
-        .return-lounge-btn:hover {
-            color: var(--text-primary);
-            border-color: rgba(255, 176, 0, 0.4);
-            transform: translateX(-4px);
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        /* Top Header */
-        .lock-title-block {
-            text-align: center;
-            margin-bottom: 32px;
-            width: 100%;
-        }
-
-        .lock-title-block h1 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 36px;
-            font-weight: 800;
-            letter-spacing: -0.04em;
-            background: linear-gradient(135deg, var(--text-primary) 30%, var(--kami-text-muted) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin: 0 0 8px 0;
-        }
-
-        /* Typewriter Effect for dynamic greeting */
-        .typing-effect {
-            color: var(--kami-accent);
-            font-size: 14px;
-            font-weight: 700;
-            margin: 0 auto;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            overflow: hidden;
-            white-space: nowrap;
-            border-right: 2px solid var(--kami-accent);
-            width: 0;
-            animation: typing 1.5s steps(30, end) forwards 0.3s, blink 0.75s step-end infinite;
-        }
-
-        @keyframes typing {
-            from { width: 0 }
-            to { width: 100% }
-        }
-        @keyframes blink {
-            from, to { border-color: transparent }
-            50% { border-color: var(--kami-accent) }
-        }
-
-        /* Alert Banner */
-        .alert-banner {
-            width: 100%;
-            background: rgba(255, 69, 58, 0.1);
-            border: 1px solid rgba(255, 69, 58, 0.3);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 24px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            opacity: 0;
-            display: none;
-            box-sizing: border-box;
-        }
-
-        .alert-banner.active {
-            display: flex;
-            animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .alert-icon, .alert-text h4 { color: var(--kami-danger); }
-        .alert-text h4 { margin: 0 0 4px 0; font-size: 14px; font-weight: 700; }
-        .alert-text p { color: var(--kami-text-muted); margin: 0; font-size: 12px; }
-
-        /* Giant Holographic FaceID Scanner */
-        .hologram-face-container {
-            width: 100px;
-            height: 100px;
-            margin-bottom: 32px;
-            position: relative;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .hologram-face-ring {
-            position: absolute;
-            inset: 0;
-            border: 2px dashed rgba(255, 176, 0, 0.3);
-            border-radius: 50%;
-            animation: ringRotate 20s linear infinite;
-            transition: border-color 0.3s;
-        }
-
-        .hologram-face-ring-active {
-            position: absolute;
-            inset: -4px;
-            border: 2.5px solid var(--kami-accent);
-            border-radius: 50%;
-            opacity: 0;
-            transform: scale(0.8);
-            transition: all 0.4s var(--kami-spring);
-        }
-
-        .hologram-face-container:hover .hologram-face-ring {
-            border-color: var(--kami-accent);
-            animation-duration: 8s;
-        }
-
-        .hologram-face-icon {
-            font-size: 48px;
-            color: var(--kami-accent);
-            transition: all var(--kami-spring);
-        }
-
-        .hologram-face-container:hover .hologram-face-icon {
-            transform: scale(1.1);
-            text-shadow: 0 0 15px var(--kami-accent);
-        }
-
-        /* Pulse animation for when inputs are focused */
-        @keyframes scannerPulse {
-            0% { transform: scale(1); opacity: 0.8; }
-            50% { transform: scale(1.05); opacity: 1; }
-            100% { transform: scale(1); opacity: 0.8; }
-        }
-        .scanner-watching .hologram-face-icon {
-            animation: scannerPulse 2s infinite ease-in-out;
-        }
-
-        .hologram-laser {
-            position: absolute;
-            left: 10%;
-            width: 80%;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--kami-accent), transparent);
-            box-shadow: 0 0 10px var(--kami-accent);
-            top: 20%;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .scanning-active .hologram-laser {
-            animation: laserScan 1.2s infinite ease-in-out;
-            opacity: 1;
-        }
-
-        .scanning-active .hologram-face-ring-active {
-            opacity: 1;
-            transform: scale(1);
-        }
-
-        @keyframes ringRotate { to { transform: rotate(360deg); } }
-        @keyframes laserScan {
-            0% { top: 15%; opacity: 0; }
-            30% { opacity: 1; }
-            70% { opacity: 1; }
-            100% { top: 85%; opacity: 0; }
-        }
-
-        .scanner-feedback {
-            font-size: 13px;
-            color: var(--kami-text-muted);
-            font-weight: 600;
-            margin-top: -16px;
-            margin-bottom: 32px;
-            height: 20px;
-            transition: color 0.3s;
-        }
-
-        .scanner-feedback.scanning { color: var(--kami-accent); }
-
-        /* Form Elements - Floating Labels */
-        .hologram-form { width: 100%; }
-
-        .hologram-form-group {
-            margin-bottom: 24px;
-            position: relative;
-            width: 100%;
-        }
-
-        .hologram-form-input {
-            width: 100%;
-            padding: 22px 20px 10px 20px;
-            padding-right: 56px;
-            background: var(--input-bg);
-            border: 1px solid var(--input-border);
-            border-radius: 12px;
-            font-size: 16px;
-            font-family: inherit;
-            color: var(--text-primary);
-            outline: none;
-            transition: all var(--kami-transition);
-            box-sizing: border-box;
-        }
-
-        .hologram-form-input:focus {
-            background: rgba(255, 176, 0, 0.05);
-            border-color: var(--kami-accent);
-            box-shadow: 0 0 0 4px rgba(255, 176, 0, 0.15);
-        }
-
-        .hologram-form-label {
-            position: absolute;
-            left: 20px;
-            top: 18px;
-            font-size: 15px;
-            color: var(--kami-text-muted);
-            pointer-events: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .hologram-form-input:focus ~ .hologram-form-label,
-        .hologram-form-input:not(:placeholder-shown) ~ .hologram-form-label {
-            top: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--kami-accent);
-        }
-
-        .hologram-toggle-btn {
-            position: absolute;
-            right: 16px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--kami-text-muted);
-            cursor: pointer;
-            font-size: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: color 0.2s, transform 0.2s;
-        }
-
-        .hologram-toggle-btn:hover {
-            color: var(--text-primary);
-            transform: translateY(-50%) scale(1.1);
-        }
-
-        /* Submit Button with Shine Effect */
-        .hologram-submit-btn {
-            width: 100%;
-            height: 54px;
-            border-radius: 12px;
-            background: var(--kami-accent);
-            color: #000;
-            font-size: 16px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            border: none;
-            cursor: pointer;
-            margin-top: 16px;
-            transition: all 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .hologram-submit-btn::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 50%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-            transform: skewX(-20deg);
-            transition: 0.5s;
-        }
-
-        .hologram-submit-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(255, 176, 0, 0.35);
-        }
-
-        .hologram-submit-btn:hover::after {
-            left: 200%;
-        }
-
-        .hologram-submit-btn:active {
-            transform: translateY(0);
-            box-shadow: 0 5px 10px rgba(255, 176, 0, 0.3);
-        }
-
-        /* Theme controls at top */
-        .theme-switcher-badge {
-            position: fixed;
-            top: 24px;
-            right: 24px;
-            background: var(--input-bg);
-            border: 1px solid var(--input-border);
-            backdrop-filter: blur(10px);
-            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid var(--border);
             border-radius: 100px;
+            color: var(--text-soft);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: border-color 0.2s var(--ease), color 0.2s var(--ease), background 0.2s var(--ease);
+        }
+        .ghost-btn:hover {
+            color: var(--text);
+            border-color: var(--border-strong);
+            background: var(--field-focus);
+        }
+        .icon-btn { width: 38px; padding: 0; justify-content: center; }
+
+        .auth__body {
+            width: 100%;
+            max-width: 380px;
+            margin: 48px auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .eyebrow {
             font-size: 12px;
             font-weight: 700;
-            color: var(--kami-text-muted);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            z-index: 1000;
-            transition: all 0.2s;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 14px;
         }
 
-        .theme-switcher-badge:hover {
-            color: var(--text-primary);
-            border-color: rgba(255, 176, 0, 0.4);
-            transform: translateY(-2px);
+        .auth h1 {
+            font-size: 30px;
+            line-height: 1.15;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin: 0 0 10px;
         }
-        
-        /* Shake animation for errors */
+
+        .auth__desc {
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-soft);
+            margin: 0 0 32px;
+        }
+
+        /* Error banner */
+        .banner {
+            display: none;
+            align-items: flex-start;
+            gap: 11px;
+            background: rgba(217, 52, 43, 0.08);
+            border: 1px solid rgba(217, 52, 43, 0.30);
+            border-radius: var(--radius);
+            padding: 13px 15px;
+            margin-bottom: 24px;
+        }
+        .banner.active {
+            display: flex;
+            animation: dropIn 0.4s var(--ease) both;
+        }
+        .banner i { color: var(--danger); font-size: 18px; margin-top: 1px; }
+        .banner h4 { margin: 0 0 2px; font-size: 13px; font-weight: 700; color: var(--text); }
+        .banner p { margin: 0; font-size: 12.5px; color: var(--text-soft); line-height: 1.45; }
+
+        @keyframes dropIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Fields */
+        .field { position: relative; margin-bottom: 18px; }
+
+        .field__input {
+            width: 100%;
+            height: 56px;
+            padding: 20px 16px 6px;
+            background: var(--field);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font: inherit;
+            font-size: 15px;
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease);
+        }
+        .field--pw .field__input { padding-right: 48px; }
+
+        .field__input:focus {
+            border-color: var(--accent);
+            background: var(--field-focus);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        .field__label {
+            position: absolute;
+            left: 16px;
+            top: 18px;
+            font-size: 15px;
+            color: var(--text-faint);
+            pointer-events: none;
+            transition: all 0.18s var(--ease);
+        }
+        .field__input:focus ~ .field__label,
+        .field__input:not(:placeholder-shown) ~ .field__label {
+            top: 9px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            color: var(--text-soft);
+        }
+        .field__input:focus ~ .field__label { color: var(--accent); }
+
+        .field--error .field__input { border-color: var(--danger); }
+        .field--error .field__input:focus { box-shadow: 0 0 0 3px rgba(217, 52, 43, 0.18); }
+
+        .pw-toggle {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 36px;
+            height: 36px;
+            display: grid;
+            place-items: center;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-faint);
+            font-size: 18px;
+            cursor: pointer;
+            transition: color 0.2s var(--ease), background 0.2s var(--ease);
+        }
+        .pw-toggle:hover { color: var(--text); background: var(--field-focus); }
+
+        .row-between {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 6px 0 26px;
+        }
+
+        .check {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 13.5px;
+            color: var(--text-soft);
+            cursor: pointer;
+            user-select: none;
+        }
+        .check input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .check__box {
+            width: 18px;
+            height: 18px;
+            border: 1.5px solid var(--border-strong);
+            border-radius: 5px;
+            display: grid;
+            place-items: center;
+            color: transparent;
+            font-size: 12px;
+            transition: all 0.18s var(--ease);
+        }
+        .check input:checked ~ .check__box {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .check input:focus-visible ~ .check__box { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+        .link {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text);
+            text-decoration: none;
+            transition: color 0.2s var(--ease);
+        }
+        .link:hover { color: var(--accent); }
+
+        .submit {
+            width: 100%;
+            height: 52px;
+            border: none;
+            border-radius: var(--radius);
+            background: var(--accent);
+            color: #fff;
+            font: inherit;
+            font-size: 15px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: background 0.2s var(--ease), transform 0.12s var(--ease), box-shadow 0.2s var(--ease);
+        }
+        .submit:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 8px 22px rgba(200, 145, 30, 0.28); }
+        .submit:active { transform: translateY(0); }
+        .submit:disabled { opacity: 0.7; cursor: default; transform: none; box-shadow: none; }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin: 26px 0;
+            color: var(--text-faint);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .sso { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .sso-btn {
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            background: var(--field);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+        }
+        .sso-btn:hover { border-color: var(--border-strong); background: var(--field-focus); }
+        .sso-btn i { font-size: 18px; }
+
+        .signup {
+            text-align: center;
+            margin-top: 28px;
+            font-size: 14px;
+            color: var(--text-soft);
+        }
+        .signup a { color: var(--text); font-weight: 700; text-decoration: none; }
+        .signup a:hover { color: var(--accent); }
+
+        .auth__foot {
+            margin-top: auto;
+            padding-top: 32px;
+            display: flex;
+            gap: 20px;
+            font-size: 12.5px;
+            color: var(--text-faint);
+        }
+        .auth__foot a { color: var(--text-faint); text-decoration: none; transition: color 0.2s var(--ease); }
+        .auth__foot a:hover { color: var(--text-soft); }
+        .auth__foot .spacer { margin-left: auto; }
+
+        /* ============ RIGHT — VISUAL PANEL ============ */
+        .visual {
+            position: relative;
+            overflow: hidden;
+            background: #0A0B0D;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 56px;
+        }
+        .visual__img {
+            position: absolute;
+            inset: 0;
+            background-image:
+                url('https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=1400&q=80');
+            background-size: cover;
+            background-position: center;
+            transform: scale(1.06);
+            animation: slowZoom 24s ease-in-out infinite alternate;
+        }
+        @keyframes slowZoom {
+            from { transform: scale(1.06); }
+            to { transform: scale(1.14); }
+        }
+        .visual__scrim {
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg, rgba(10,11,13,0.35) 0%, rgba(10,11,13,0.55) 50%, rgba(10,11,13,0.92) 100%),
+                linear-gradient(115deg, rgba(10,11,13,0.45), transparent 60%);
+        }
+
+        .visual__top {
+            position: absolute;
+            top: 56px;
+            left: 56px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 16px 9px 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 100px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .visual__top i { color: var(--accent); font-size: 16px; }
+
+        .visual__content { position: relative; max-width: 520px; }
+
+        .visual h2 {
+            font-size: clamp(30px, 3.4vw, 46px);
+            line-height: 1.08;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin: 0 0 18px;
+        }
+        .visual h2 .accent { color: var(--accent); }
+
+        .visual__lede {
+            font-size: 16px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.72);
+            margin: 0 0 36px;
+            max-width: 440px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .stat {
+            flex: 1;
+            min-width: 130px;
+            padding: 18px 20px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .stat__num {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: baseline;
+            gap: 2px;
+        }
+        .stat__num .unit { color: var(--accent); }
+        .stat__label {
+            font-size: 12.5px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 4px;
+        }
+
+        /* ============ ENTRANCE ============ */
+        .reveal { opacity: 0; transform: translateY(14px); animation: rise 0.7s var(--ease) forwards; }
+        .d1 { animation-delay: 0.05s; }
+        .d2 { animation-delay: 0.12s; }
+        .d3 { animation-delay: 0.19s; }
+        .d4 { animation-delay: 0.26s; }
+        .d5 { animation-delay: 0.33s; }
+        .d6 { animation-delay: 0.40s; }
+        @keyframes rise {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         @keyframes shake {
             0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
-            20%, 40%, 60%, 80% { transform: translateX(6px); }
+            20%, 60% { transform: translateX(-7px); }
+            40%, 80% { transform: translateX(7px); }
         }
-        .shake-card { animation: shake 0.5s ease-in-out; }
+        .shake { animation: shake 0.45s ease-in-out; }
+
+        /* ============ RESPONSIVE ============ */
+        @media (max-width: 980px) {
+            .shell { grid-template-columns: 1fr; }
+            .visual { display: none; }
+            .auth { min-height: 100vh; }
+        }
+        @media (max-width: 520px) {
+            .auth { padding: 28px 22px; }
+            .auth__body { margin: 36px auto; }
+            .auth h1 { font-size: 26px; }
+            .sso { grid-template-columns: 1fr; }
+            .auth__foot { flex-wrap: wrap; gap: 12px 20px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .reveal, .visual__img { animation: none; opacity: 1; transform: none; }
+        }
     </style>
 </head>
 <body>
-    
-    <a href="index.php" class="return-lounge-btn stagger-1">
-        <i class="ph-bold ph-arrow-left"></i>
-        <span>Exit Terminal</span>
-    </a>
+    <div class="shell">
 
-    <div class="theme-switcher-badge stagger-1" id="theme-switch-btn">
-        <i class="ph ph-moon"></i>
-        <span>Dark Cyber Mode</span>
-    </div>
-
-    <div class="login-card-wrapper" id="card-wrapper">
-        <div class="login-card" id="main-login-card">
-            
-            <div class="lock-title-block stagger-1">
-                <h1>Ozone Admin</h1>
-                <div class="typing-effect"><?= htmlspecialchars($greeting) ?></div>
-            </div>
-
-            <div class="alert-banner" id="error-banner">
-                <div class="alert-icon"><i class="ph-fill ph-warning-circle"></i></div>
-                <div class="alert-text">
-                    <h4>Access Denied</h4>
-                    <p>Invalid credentials provided. Please try again.</p>
+        <!-- ============ LEFT: FORM ============ -->
+        <main class="auth">
+            <div class="auth__top reveal d1">
+                <a href="index.php" class="brand">
+                    <span class="brand__mark"><i class="ph-bold ph-shield-check"></i></span>
+                    <span>
+                        <span class="brand__name" style="display:block;">Ozone Admin</span>
+                        <span class="brand__sub">Staff Terminal</span>
+                    </span>
+                </a>
+                <div class="top-actions">
+                    <button type="button" class="ghost-btn icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
+                        <i class="ph ph-moon"></i>
+                    </button>
+                    <a href="index.php" class="ghost-btn">
+                        <i class="ph ph-arrow-left"></i><span>Exit</span>
+                    </a>
                 </div>
             </div>
 
-            <div class="hologram-face-container stagger-2" id="face-id-container" title="Click to Scan Face Signal">
-                <div class="hologram-face-ring"></div>
-                <div class="hologram-face-ring-active"></div>
-                <div class="hologram-laser"></div>
-                <i class="ph ph-scan-face hologram-face-icon" id="face-id-icon"></i>
-            </div>
-            
-            <div class="scanner-feedback stagger-2" id="biometric-status">Tap scanner or focus input to verify</div>
+            <div class="auth__body">
+                <div class="eyebrow reveal d2"><?= htmlspecialchars($greeting) ?></div>
+                <h1 class="reveal d2">Welcome back</h1>
+                <p class="auth__desc reveal d3">Sign in to access the Ozone control center. Your session is encrypted and monitored for security.</p>
 
-            <form action="<?= htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST" class="hologram-form" id="login-form">
-                
-                <div class="hologram-form-group stagger-3">
-                    <input type="text" name="username" id="username" class="hologram-form-input" placeholder=" " required autocomplete="username">
-                    <label class="hologram-form-label">Clearance ID (Username)</label>
+                <div class="banner" id="error-banner">
+                    <i class="ph-fill ph-warning-circle"></i>
+                    <div>
+                        <h4>Access denied</h4>
+                        <p>The credentials you entered don't match our records. Please try again.</p>
+                    </div>
                 </div>
-                
-                <div class="hologram-form-group stagger-3">
-                    <input type="password" id="password" name="password" class="hologram-form-input" placeholder=" " required autocomplete="current-password">
-                    <label class="hologram-form-label">Access Credentials (Password)</label>
-                    <button type="button" id="toggle-password" class="hologram-toggle-btn" title="Toggle visibility">
-                        <i class="ph ph-eye"></i>
+
+                <form action="<?= htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST" id="login-form" novalidate>
+                    <div class="field reveal d4" id="f-username">
+                        <input type="text" name="username" id="username" class="field__input" placeholder=" " required autocomplete="username">
+                        <label class="field__label" for="username">Username</label>
+                    </div>
+
+                    <div class="field field--pw reveal d4" id="f-password">
+                        <input type="password" name="password" id="password" class="field__input" placeholder=" " required autocomplete="current-password">
+                        <label class="field__label" for="password">Password</label>
+                        <button type="button" class="pw-toggle" id="toggle-password" aria-label="Show password">
+                            <i class="ph ph-eye"></i>
+                        </button>
+                    </div>
+
+                    <div class="row-between reveal d5">
+                        <label class="check">
+                            <input type="checkbox" name="remember" id="remember">
+                            <span class="check__box"><i class="ph-bold ph-check"></i></span>
+                            <span>Remember me</span>
+                        </label>
+                        <a href="#" class="link">Forgot password?</a>
+                    </div>
+
+                    <button type="submit" class="submit reveal d5" id="submit-btn">
+                        <span>Sign in</span>
+                        <i class="ph-bold ph-arrow-right"></i>
+                    </button>
+                </form>
+
+                <div class="divider reveal d6">or</div>
+
+                <div class="sso reveal d6">
+                    <button type="button" class="sso-btn">
+                        <i class="ph-bold ph-google-logo"></i><span>Google</span>
+                    </button>
+                    <button type="button" class="sso-btn">
+                        <i class="ph-bold ph-microsoft-outlook-logo"></i><span>Microsoft</span>
                     </button>
                 </div>
 
-                <button type="submit" class="hologram-submit-btn stagger-4" id="submit-btn">
-                    <i class="ph-bold ph-lock-key-open"></i>
-                    <span>Unlock System</span>
-                </button>
-            </form>
-        </div>
+                <p class="signup reveal d6">Need access? <a href="#">Request an account</a></p>
+            </div>
+
+            <div class="auth__foot reveal d6">
+                <span>© <?= date('Y') ?> Ozone</span>
+                <a href="#">Privacy</a>
+                <a href="#">Terms</a>
+                <span class="spacer"><i class="ph ph-lock-simple"></i> Secured connection</span>
+            </div>
+        </main>
+
+        <!-- ============ RIGHT: VISUAL ============ -->
+        <aside class="visual">
+            <div class="visual__img"></div>
+            <div class="visual__scrim"></div>
+
+            <div class="visual__top reveal d2">
+                <i class="ph-fill ph-seal-check"></i>
+                <span>Enterprise-grade security</span>
+            </div>
+
+            <div class="visual__content">
+                <h2 class="reveal d3">Operate with <span class="accent">total</span> clarity.</h2>
+                <p class="visual__lede reveal d4">One unified terminal for your team — real-time telemetry, role-based access, and the controls you need to run operations with confidence.</p>
+
+                <div class="stats">
+                    <div class="stat reveal d5">
+                        <div class="stat__num">99.9<span class="unit">%</span></div>
+                        <div class="stat__label">Uptime reliability</div>
+                    </div>
+                    <div class="stat reveal d5">
+                        <div class="stat__num">256<span class="unit">-bit</span></div>
+                        <div class="stat__label">Encrypted sessions</div>
+                    </div>
+                    <div class="stat reveal d6">
+                        <div class="stat__num">24<span class="unit">/7</span></div>
+                        <div class="stat__label">Monitored access</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Interactive 3D Tilt Effect on Card
-            const wrapper = document.getElementById('card-wrapper');
-            document.addEventListener('mousemove', (e) => {
-                const xAxis = (window.innerWidth / 2 - e.pageX) / 40;
-                const yAxis = (window.innerHeight / 2 - e.pageY) / 40;
-                wrapper.style.transform = `rotateY(${xAxis}deg) rotateX(${yAxis}deg)`;
+            const root = document.documentElement;
+
+            // Theme toggle (with localStorage persistence)
+            const themeToggle = document.getElementById('theme-toggle');
+            const applyTheme = (t) => {
+                root.setAttribute('data-theme', t);
+                themeToggle.innerHTML = t === 'dark'
+                    ? '<i class="ph ph-moon"></i>'
+                    : '<i class="ph ph-sun"></i>';
+            };
+            try {
+                const saved = localStorage.getItem('ozone-theme');
+                if (saved) applyTheme(saved);
+            } catch (e) {}
+            themeToggle.addEventListener('click', () => {
+                const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                applyTheme(next);
+                try { localStorage.setItem('ozone-theme', next); } catch (e) {}
             });
 
-            // Password Toggle Micro-interaction
-            const pwField = document.getElementById('password');
+            // Password visibility toggle
+            const pw = document.getElementById('password');
             const pwToggle = document.getElementById('toggle-password');
-            if (pwField && pwToggle) {
-                pwToggle.addEventListener('click', () => {
-                    const isPw = pwField.type === 'password';
-                    pwField.type = isPw ? 'text' : 'password';
-                    pwToggle.innerHTML = isPw ? '<i class="ph ph-eye-slash"></i>' : '<i class="ph ph-eye"></i>';
-                });
-            }
-
-            // Make FaceID pulse when typing
-            const inputs = document.querySelectorAll('.hologram-form-input');
-            const faceContainer = document.getElementById('face-id-container');
-            inputs.forEach(input => {
-                input.addEventListener('focus', () => faceContainer.classList.add('scanner-watching'));
-                input.addEventListener('blur', () => faceContainer.classList.remove('scanner-watching'));
+            pwToggle.addEventListener('click', () => {
+                const show = pw.type === 'password';
+                pw.type = show ? 'text' : 'password';
+                pwToggle.innerHTML = show ? '<i class="ph ph-eye-slash"></i>' : '<i class="ph ph-eye"></i>';
+                pwToggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
             });
 
-            // Biometrics Scan Simulation
-            const faceIdContainer = document.getElementById('face-id-container');
-            const faceIdIcon = document.getElementById('face-id-icon');
-            const biometricStatus = document.getElementById('biometric-status');
-            const usernameField = document.getElementById('username');
-
-            if (faceIdContainer && faceIdIcon && biometricStatus) {
-                faceIdContainer.addEventListener('click', () => {
-                    faceIdContainer.classList.add('scanning-active');
-                    faceIdIcon.className = 'ph ph-spinner-gap hologram-face-icon ph-spin';
-                    biometricStatus.innerText = 'Locking onto biometric signal...';
-                    biometricStatus.classList.add('scanning');
-
-                    setTimeout(() => {
-                        faceIdContainer.classList.remove('scanning-active');
-                        faceIdIcon.className = 'ph ph-check-circle hologram-face-icon'; 
-                        biometricStatus.innerText = 'Verification complete. Fill form details below.';
-                        biometricStatus.classList.remove('scanning');
-                        
-                        setTimeout(() => {
-                            faceIdIcon.className = 'ph ph-scan-face hologram-face-icon'; 
-                            if (usernameField) usernameField.focus();
-                        }, 1000);
-                    }, 1800);
-                });
-            }
-
-            // Functional Theme Switcher
-            const themeBtn = document.getElementById('theme-switch-btn');
-            themeBtn.addEventListener('click', () => {
-                const htmlDoc = document.documentElement;
-                const isLight = htmlDoc.classList.contains('light-mode');
-                
-                if (isLight) {
-                    htmlDoc.classList.remove('light-mode');
-                    themeBtn.innerHTML = '<i class="ph ph-moon"></i> <span>Dark Cyber Mode</span>';
-                } else {
-                    htmlDoc.classList.add('light-mode');
-                    themeBtn.innerHTML = '<i class="ph ph-sun"></i> <span>Light Solar Mode</span>';
-                }
-            });
-
-            // PHP Error handling (Shake effect triggers on wrapper)
-            const phpError = "<?= $error_state ?? '' ?>";
-            const errorBanner = document.getElementById('error-banner');
-            
-            if (phpError && phpError !== "") {
-                setTimeout(() => {
-                    errorBanner.classList.add('active');
-                    wrapper.classList.add('shake-card');
-                    
-                    setTimeout(() => {
-                        wrapper.classList.remove('shake-card');
-                    }, 500);
-                }, 100);
-            }
-
-            // Form Submit FaceID Scan micro-interaction
+            // Inline validation styling
             const form = document.getElementById('login-form');
             const submitBtn = document.getElementById('submit-btn');
+            const fUser = document.getElementById('f-username');
+            const fPass = document.getElementById('f-password');
+            const user = document.getElementById('username');
 
-            if (form && submitBtn) {
-                form.addEventListener('submit', (e) => {
-                    if (!form.dataset.scanned) {
-                        e.preventDefault();
-                        submitBtn.disabled = true;
-                        submitBtn.innerHTML = '<i class="ph-bold ph-spinner-gap ph-spin"></i> <span>Verifying Secure Key...</span>';
-                        
-                        faceIdContainer.classList.add('scanning-active');
-                        faceIdIcon.className = 'ph ph-spinner-gap hologram-face-icon ph-spin';
-                        biometricStatus.innerText = 'Locking onto biometric credentials...';
-                        biometricStatus.classList.add('scanning');
+            [ [user, fUser], [pw, fPass] ].forEach(([input, wrap]) => {
+                input.addEventListener('input', () => wrap.classList.remove('field--error'));
+            });
 
-                        setTimeout(() => {
-                            form.dataset.scanned = "true";
-                            form.submit();
-                        }, 1200);
-                    }
-                });
+            form.addEventListener('submit', (e) => {
+                let valid = true;
+                if (!user.value.trim()) { fUser.classList.add('field--error'); valid = false; }
+                if (!pw.value.trim())   { fPass.classList.add('field--error'); valid = false; }
+                if (!valid) { e.preventDefault(); return; }
+
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="ph-bold ph-spinner-gap ph-spin"></i><span>Signing in…</span>';
+            });
+
+            // Server-side error feedback
+            const phpError = "<?= $error_state ?? '' ?>";
+            if (phpError) {
+                const banner = document.getElementById('error-banner');
+                banner.classList.add('active');
+                if (phpError === 'invalid_credentials') {
+                    fUser.classList.add('field--error');
+                    fPass.classList.add('field--error');
+                }
+                const body = document.querySelector('.auth__body');
+                body.classList.add('shake');
+                setTimeout(() => body.classList.remove('shake'), 460);
             }
         });
     </script>
