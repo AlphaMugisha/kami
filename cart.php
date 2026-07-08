@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OZONE | Your Portfolio</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,8 +25,9 @@
         body { 
             background-color: var(--bg-base); 
             color: var(--text-main); 
-            font-family: var(--font-ui); 
-            height: 100vh;
+            font-family: var(--font-ui);
+            min-height: 100vh;
+            min-height: 100svh;
             display: flex;
             flex-direction: column;
             align-items: center;

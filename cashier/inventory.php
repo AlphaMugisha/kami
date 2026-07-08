@@ -10,9 +10,40 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 require_once '../config/db.php';
 
-// 2. FETCH LIVE INVENTORY (read-only for cashiers)
-$products = $pdo->query("SELECT id, sku, name, category, selling_price, price, stock FROM products ORDER BY name ASC")
-                ->fetchAll(PDO::FETCH_ASSOC);
+// Branch context: cashiers picked one at login; an admin browsing this read-only
+// view falls back to whichever branch they're currently managing.
+$branch_id = (int)($_SESSION['branch_id'] ?? $_SESSION['admin_branch_id'] ?? 0);
+if (!$branch_id) {
+    $mainBranch = $pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn();
+    $branch_id = $mainBranch ? (int)$mainBranch : 1;
+}
+
+// Stock locations for this branch (empty = no location dimension, e.g. Second Branch)
+$stmt = $pdo->prepare("SELECT id, name FROM stock_locations WHERE branch_id = :bid ORDER BY id ASC");
+$stmt->execute(['bid' => $branch_id]);
+$locations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$has_locations = count($locations) > 0;
+
+// 2. FETCH LIVE INVENTORY (read-only, except the location Transfer action below).
+// Products are one shared catalog now — visible here if marked shared, or
+// explicitly exclusive to this branch.
+$stmt = $pdo->prepare("SELECT id, sku, name, category, selling_price, price, stock FROM products WHERE (shared = 1 OR branch_id = :bid) ORDER BY name ASC");
+$stmt->execute(['bid' => $branch_id]);
+$products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$locationStockMap = [];
+if ($has_locations) {
+    $stmt = $pdo->prepare(
+        "SELECT product_id, location_id, SUM(quantity_remaining) AS qty
+           FROM stock_batches
+          WHERE branch_id = :bid AND location_id IS NOT NULL AND quantity_remaining > 0
+          GROUP BY product_id, location_id"
+    );
+    $stmt->execute(['bid' => $branch_id]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $locationStockMap[(int)$row['product_id']][(int)$row['location_id']] = (int)$row['qty'];
+    }
+}
 
 $low_count = 0;
 foreach ($products as $p) {
@@ -36,6 +67,17 @@ require '../includes/staff_header.php';
 
         .mobile-menu-btn, .sidebar-overlay { display: none; }
 
+        .btn-icon { background: rgba(255,255,255,0.05); border: 1px solid var(--kami-border); color: var(--kami-text); padding: 8px; border-radius: 6px; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; }
+        .btn-icon:hover { background: rgba(255,255,255,0.1); transform: translateY(-1px); }
+
+        .form-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .modal-overlay-ui { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 9999; display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
+        .modal-overlay-ui.active { display: flex; opacity: 1; }
+        .modal-content { background: var(--kami-surface-1); border: 1px solid var(--kami-border); border-radius: 16px; padding: 32px; width: 100%; max-width: 420px; box-shadow: 0 24px 48px rgba(0,0,0,0.5); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-close { background: none; border: none; color: var(--kami-text-muted); font-size: 24px; cursor: pointer; }
+        .modal-close:hover { color: var(--kami-text); }
+
         @media (max-width: 768px) {
             .data-table thead { display: none; }
             .data-table, .data-table tbody, .data-table tr, .data-table td { display: block; width: 100%; }
@@ -44,6 +86,8 @@ require '../includes/staff_header.php';
             .data-table td { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 !important; border-bottom: 1px solid rgba(255,255,255,0.04) !important; text-align: right; }
             .data-table td:last-child { border-bottom: none !important; padding-bottom: 0 !important; }
             .data-table td::before { content: attr(data-label); font-weight: 600; color: var(--kami-text-muted); font-size: 13px; text-align: left; padding-right: 16px; }
+            .form-row-grid { grid-template-columns: 1fr; }
+            .modal-content { padding: 24px; width: 90%; }
         }
     </style>
 
@@ -77,12 +121,13 @@ require '../includes/staff_header.php';
                             <th>Category</th>
                             <th>Price</th>
                             <th>Stock</th>
+                            <?php if ($has_locations): ?><th>By Location</th><th>Actions</th><?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($products)): ?>
                             <tr>
-                                <td colspan="5" data-label="Status" style="text-align:center; padding:48px; color: var(--kami-text-dim);">
+                                <td colspan="<?= $has_locations ? 7 : 5 ?>" data-label="Status" style="text-align:center; padding:48px; color: var(--kami-text-dim);">
                                     <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px; display:block;"></i>
                                     No products in the catalog yet.
                                 </td>
@@ -115,6 +160,24 @@ require '../includes/staff_header.php';
                                             <span class="badge badge-success"><?= $stock ?> in stock</span>
                                         <?php endif; ?>
                                     </td>
+                                    <?php if ($has_locations): ?>
+                                    <td data-label="By Location" style="font-size: 12px; color: var(--kami-text-muted);">
+                                        <?php
+                                            $parts = [];
+                                            foreach ($locations as $loc) {
+                                                $q = $locationStockMap[(int)$product['id']][(int)$loc['id']] ?? 0;
+                                                $parts[] = htmlspecialchars($loc['name']) . ' ' . $q;
+                                            }
+                                            echo implode(' &middot; ', $parts);
+                                        ?>
+                                    </td>
+                                    <td data-label="Actions">
+                                        <button type="button" class="btn-icon" title="Transfer Stock"
+                                            onclick='openTransferModal(<?= (int)$product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>)'>
+                                            <i class="ph ph-arrows-left-right"></i>
+                                        </button>
+                                    </td>
+                                    <?php endif; ?>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -123,6 +186,51 @@ require '../includes/staff_header.php';
             </div>
         </div>
 
+    <?php if ($has_locations): ?>
+    <div class="modal-overlay-ui" id="transferModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="ph-bold ph-arrows-left-right"></i> Move Stock</h3>
+                <button class="modal-close" onclick="closeTransferModal()"><i class="ph ph-x"></i></button>
+            </div>
+            <p id="transferProductName" style="color: var(--kami-text-muted); margin-bottom: 20px; font-weight: 600;"></p>
+
+            <form id="transferForm" onsubmit="return submitTransfer(event)">
+                <input type="hidden" name="product_id" id="transferPid">
+                <div class="form-row-grid">
+                    <div class="form-group">
+                        <label class="form-label">From</label>
+                        <select name="from_location_id" id="transferFrom" class="form-select" required>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= (int)$loc['id'] ?>"><?= htmlspecialchars($loc['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">To</label>
+                        <select name="to_location_id" id="transferTo" class="form-select" required>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= (int)$loc['id'] ?>"><?= htmlspecialchars($loc['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Quantity</label>
+                    <input type="number" min="1" name="quantity" id="transferQty" class="form-input" required placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes <span style="color:var(--kami-text-dim);font-weight:400;">(optional)</span></label>
+                    <input type="text" name="notes" class="form-input" placeholder="Optional" autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="transferBtn" style="margin-top: 12px;">
+                    <i class="ph-bold ph-arrows-left-right"></i> <span>Move Stock</span>
+                </button>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <script>
         function filterInventory() {
             var q = document.getElementById('invSearch').value.toLowerCase();
@@ -130,5 +238,49 @@ require '../includes/staff_header.php';
                 row.style.display = row.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
             });
         }
+
+        <?php if ($has_locations): ?>
+        function openTransferModal(id, name) {
+            document.getElementById('transferPid').value = id;
+            document.getElementById('transferProductName').innerText = name;
+            document.getElementById('transferQty').value = '';
+            document.querySelector('#transferForm [name="notes"]').value = '';
+            document.getElementById('transferModal').classList.add('active');
+        }
+        function closeTransferModal() {
+            document.getElementById('transferModal').classList.remove('active');
+        }
+        async function submitTransfer(e) {
+            e.preventDefault();
+            var from = document.getElementById('transferFrom').value;
+            var to = document.getElementById('transferTo').value;
+            if (from === to) {
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Invalid Move', 'Source and destination must be different locations.', 'error');
+                return false;
+            }
+            var btn = document.getElementById('transferBtn');
+            btn.disabled = true;
+            try {
+                var fd = new FormData(document.getElementById('transferForm'));
+                var res = await fetch('../api/transfer_stock.php', { method: 'POST', body: fd });
+                var data = await res.json();
+                if (data.success) {
+                    closeTransferModal();
+                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Moved', data.message, 'success');
+                    setTimeout(function () { location.reload(); }, 900);
+                } else {
+                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Transfer Failed', data.message || 'Unknown error', 'error');
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Network Error', 'Could not reach the server.', 'error');
+                btn.disabled = false;
+            }
+            return false;
+        }
+        document.getElementById('transferModal').addEventListener('click', function (e) {
+            if (e.target === this) closeTransferModal();
+        });
+        <?php endif; ?>
     </script>
 <?php require '../includes/staff_footer.php'; ?>

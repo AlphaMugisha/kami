@@ -13,10 +13,13 @@ $cashier_id = $_SESSION['user_id'];
 $userName = $_SESSION['full_name'];
 
 $stmt = $pdo->prepare("
-    SELECT s.*, 
-    (SELECT SUM(total) FROM sales WHERE cashier_id = s.cashier_id AND created_at >= s.clock_in AND created_at <= IFNULL(s.clock_out, NOW())) as shift_sales
-    FROM shifts s 
-    WHERE s.cashier_id = :id 
+    SELECT s.*, b.name AS branch_name,
+    (SELECT SUM(total) FROM sales
+       WHERE cashier_id = s.cashier_id AND branch_id = s.branch_id
+         AND created_at >= s.clock_in AND created_at <= IFNULL(s.clock_out, NOW())) as shift_sales
+    FROM shifts s
+    LEFT JOIN branches b ON b.id = s.branch_id
+    WHERE s.cashier_id = :id
     ORDER BY s.clock_in DESC
 ");
 $stmt->execute(['id' => $cashier_id]);
@@ -27,6 +30,38 @@ $staff_area = 'cashier';
 $page_title = 'Shift History';
 require '../includes/staff_header.php';
 ?>
+    <style>
+        /* Mobile card-conversion for the shift-history table (same technique as admin/inventory.php) */
+        @media (max-width: 768px) {
+            .data-table thead { display: none; }
+            .data-table, .data-table tbody, .data-table tr, .data-table td { display: block; width: 100%; }
+            .data-table tr {
+                margin-bottom: 16px;
+                background: var(--kami-surface-2);
+                border: 1px solid var(--kami-border) !important;
+                border-radius: var(--kami-radius-md);
+                padding: 16px;
+            }
+            .data-table td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 0 !important;
+                border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+                text-align: right;
+            }
+            .data-table td:last-child { border-bottom: none !important; padding-bottom: 0 !important; }
+            .data-table td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                color: var(--kami-text-muted);
+                font-size: 13px;
+                text-align: left;
+                padding-right: 16px;
+            }
+        }
+    </style>
+
         <h1 class="kami-page-title">My Shift History</h1>
         <p class="kami-page-sub">Personal audit ledger of all past operational shifts.</p>
 
@@ -42,6 +77,7 @@ require '../includes/staff_header.php';
                         <tr>
                             <th>Date / Clock In</th>
                             <th>Status</th>
+                            <th>Branch</th>
                             <th>Starting Float</th>
                             <th>Shift Sales</th>
                             <th>Final Expected</th>
@@ -50,7 +86,7 @@ require '../includes/staff_header.php';
                     </thead>
                     <tbody>
                         <?php if (empty($shifts)): ?>
-                            <tr><td colspan="6" class="empty-state">No shifts found in your history.</td></tr>
+                            <tr><td colspan="7" class="empty-state">No shifts found in your history.</td></tr>
                         <?php else: ?>
                             <?php foreach ($shifts as $s): 
                                 $sales = (float)($s['shift_sales'] ?? 0);
@@ -58,11 +94,11 @@ require '../includes/staff_header.php';
                                 $discrepancy = ($s['status'] === 'closed') ? ((float)$s['ending_cash'] - $expected) : 0;
                             ?>
                                 <tr class="hover-scale">
-                                    <td class="fw-600">
+                                    <td class="fw-600" data-label="Date / Clock In">
                                         <?= date('M j, Y', strtotime($s['clock_in'])) ?><br>
                                         <span class="time-muted"><?= date('h:i A', strtotime($s['clock_in'])) ?> - <?= $s['clock_out'] ? date('h:i A', strtotime($s['clock_out'])) : 'Active' ?></span>
                                     </td>
-                                    <td>
+                                    <td data-label="Status">
                                         <?php if ($s['status'] === 'active'): ?>
                                             <span class="badge badge-success">Active Now</span>
                                         <?php elseif ($s['submitted_at']): ?>
@@ -71,10 +107,11 @@ require '../includes/staff_header.php';
                                             <span class="badge badge-danger">Closed (Unsubmitted)</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="text-muted">$<?= number_format((float)$s['starting_cash'], 2) ?></td>
-                                    <td class="text-accent">+$<?= number_format($sales, 2) ?></td>
-                                    <td class="fw-700">$<?= number_format($expected, 2) ?></td>
-                                    <td>
+                                    <td class="row-secondary" data-label="Branch"><?= htmlspecialchars($s['branch_name'] ?? '—') ?></td>
+                                    <td class="text-muted row-secondary" data-label="Starting Float">$<?= number_format((float)$s['starting_cash'], 2) ?></td>
+                                    <td class="text-accent row-secondary" data-label="Shift Sales">+$<?= number_format($sales, 2) ?></td>
+                                    <td class="fw-700 row-secondary" data-label="Final Expected">$<?= number_format($expected, 2) ?></td>
+                                    <td data-label="Over/Short">
                                         <?php if ($s['status'] === 'active'): ?>
                                             <span class="status-pending">Pending</span>
                                         <?php elseif ($discrepancy === 0.0): ?>
@@ -84,6 +121,9 @@ require '../includes/staff_header.php';
                                                 <?= $discrepancy > 0 ? '+' : '' ?>$<?= number_format($discrepancy, 2) ?>
                                             </span>
                                         <?php endif; ?>
+                                    </td>
+                                    <td class="row-expand-cell">
+                                        <button type="button" class="row-expand-btn"><i class="ph-bold ph-caret-down"></i> Details</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

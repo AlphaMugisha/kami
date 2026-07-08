@@ -12,6 +12,7 @@ require_once '../config/db.php';
 
 $cashier_id = $_SESSION['user_id'];
 $cashier_name = $_SESSION['full_name'];
+$branch_id = (int)($_SESSION['branch_id'] ?? 1);
 $success_msg = '';
 
 // PROCESS: SUBMIT REPORT TO ADMIN
@@ -24,9 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_report'])) {
     }
 }
 
-// 2. FETCH THE LATEST SHIFT FOR THIS CASHIER
-$stmt = $pdo->prepare("SELECT * FROM shifts WHERE cashier_id = :id ORDER BY clock_in DESC LIMIT 1");
-$stmt->execute(['id' => $cashier_id]);
+// 2. FETCH THE LATEST SHIFT FOR THIS CASHIER AT THIS BRANCH
+$stmt = $pdo->prepare("SELECT * FROM shifts WHERE cashier_id = :id AND branch_id = :bid ORDER BY clock_in DESC LIMIT 1");
+$stmt->execute(['id' => $cashier_id, 'bid' => $branch_id]);
 $shift = $stmt->fetch(PDO::FETCH_ASSOC);
 
 // 3. CALCULATE SHIFT FINANCIALS
@@ -40,11 +41,11 @@ if ($shift) {
     $end_time = $shift['clock_out'] ? $shift['clock_out'] : date('Y-m-d H:i:s');
 
     $sales_stmt = $pdo->prepare("
-        SELECT SUM(total) as total_sales, COUNT(id) as receipt_count 
-        FROM sales 
-        WHERE cashier_id = :id AND created_at >= :start AND created_at <= :end
+        SELECT SUM(total) as total_sales, COUNT(id) as receipt_count
+        FROM sales
+        WHERE cashier_id = :id AND branch_id = :bid AND created_at >= :start AND created_at <= :end
     ");
-    $sales_stmt->execute(['id' => $cashier_id, 'start' => $start_time, 'end' => $end_time]);
+    $sales_stmt->execute(['id' => $cashier_id, 'bid' => $branch_id, 'start' => $start_time, 'end' => $end_time]);
     
     $sales_data = $sales_stmt->fetch(PDO::FETCH_ASSOC);
     $shift_sales = (float)($sales_data['total_sales'] ?? 0);

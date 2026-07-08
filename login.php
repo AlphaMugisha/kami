@@ -13,9 +13,16 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     exit();
 }
 
+// Cashier backed out of branch selection -> drop the pending login, start over
+if (isset($_GET['cancel'])) {
+    unset($_SESSION['pending_cashier']);
+    header("Location: login.php");
+    exit();
+}
+
 // Preloader hook
-if (file_exists('includes/preloader.php')) { 
-    include 'includes/preloader.php'; 
+if (file_exists('includes/preloader.php')) {
+    include 'includes/preloader.php';
 }
 
 // Time-based dynamic greeting
@@ -32,10 +39,38 @@ if ($hour < 12) {
 }
 
 $error_state = null;
+require_once 'config/db.php';
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    require_once 'config/db.php'; 
+// STEP 2 (cashiers only): finalize login once a branch has been chosen
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['confirm_branch']) && isset($_SESSION['pending_cashier'])) {
+    $branch_id = filter_input(INPUT_POST, 'branch_id', FILTER_VALIDATE_INT);
+    $branch = null;
+    if ($branch_id) {
+        $stmt = $pdo->prepare("SELECT id, name, is_open FROM branches WHERE id = :id");
+        $stmt->execute(['id' => $branch_id]);
+        $branch = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 
+    if ($branch && !(int)$branch['is_open']) {
+        $error_state = 'branch_closed';
+    } elseif ($branch) {
+        $pending = $_SESSION['pending_cashier'];
+        $_SESSION['user_id']     = $pending['user_id'];
+        $_SESSION['role']        = $pending['role'];
+        $_SESSION['full_name']   = $pending['full_name'];
+        $_SESSION['branch_id']   = (int)$branch['id'];
+        $_SESSION['branch_name'] = $branch['name'];
+        $_SESSION['logged_in']   = true;
+        unset($_SESSION['pending_cashier']);
+        header("Location: cashier/index.php");
+        exit();
+    } else {
+        $error_state = 'invalid_branch';
+    }
+}
+
+// STEP 1: username/password verification
+if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['confirm_branch'])) {
     $username = filter_input(INPUT_POST, 'username', FILTER_SANITIZE_STRING);
     $password = $_POST['password'] ?? '';
 
@@ -49,18 +84,41 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($user && password_verify($password, $user['password_hash'])) {
                 session_regenerate_id(true);
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['full_name'] = $user['full_name'];
-                $_SESSION['logged_in'] = true;
 
-                // INTELLIGENT ROUTER 2: The moment they click "Unlock System"
                 if ($user['role'] === 'admin') {
+                    // Admins see every branch — no picker needed.
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['role'] = $user['role'];
+                    $_SESSION['full_name'] = $user['full_name'];
+                    $_SESSION['logged_in'] = true;
                     header("Location: admin/index.php");
-                } else {
-                    header("Location: cashier/index.php"); 
+                    exit();
                 }
-                exit();
+
+                // Cashier: only ask which branch if there's more than one to choose from.
+                $branchCount = (int)$pdo->query("SELECT COUNT(*) FROM branches")->fetchColumn();
+                if ($branchCount <= 1) {
+                    $onlyBranch = $pdo->query("SELECT id, name, is_open FROM branches ORDER BY is_main DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+                    if ($onlyBranch && !(int)$onlyBranch['is_open']) {
+                        $error_state = 'branch_closed';
+                    } else {
+                        $_SESSION['user_id']     = $user['id'];
+                        $_SESSION['role']        = $user['role'];
+                        $_SESSION['full_name']   = $user['full_name'];
+                        $_SESSION['branch_id']   = $onlyBranch ? (int)$onlyBranch['id'] : 1;
+                        $_SESSION['branch_name'] = $onlyBranch ? $onlyBranch['name'] : 'Main Branch';
+                        $_SESSION['logged_in']   = true;
+                        header("Location: cashier/index.php");
+                        exit();
+                    }
+                } else {
+                    // Hold the login open until they pick a branch below.
+                    $_SESSION['pending_cashier'] = [
+                        'user_id'   => $user['id'],
+                        'role'      => $user['role'],
+                        'full_name' => $user['full_name'],
+                    ];
+                }
             } else {
                 $error_state = 'invalid_credentials';
             }
@@ -69,6 +127,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $error_state = 'server_error';
         }
     }
+}
+
+$showBranchPicker = isset($_SESSION['pending_cashier']);
+$branches = [];
+if ($showBranchPicker) {
+    $branches = $pdo->query("SELECT id, name, is_main, is_open FROM branches ORDER BY is_main DESC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 ?>
 <!DOCTYPE html>
@@ -275,7 +339,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             border: 1px solid var(--border);
             border-radius: var(--radius);
             font: inherit;
-            font-size: 15px;
+            font-size: 16px;
             color: var(--text);
             outline: none;
             transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease);
@@ -589,6 +653,28 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         @media (prefers-reduced-motion: reduce) {
             .reveal, .visual__img { animation: none; opacity: 1; transform: none; }
         }
+
+        /* ============ BRANCH PICKER (cashier login, step 2) ============ */
+        .branch-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+        .branch-card {
+            display: flex; align-items: center; gap: 14px;
+            width: 100%; padding: 18px 20px;
+            background: var(--field); border: 1px solid var(--border); border-radius: var(--radius);
+            color: var(--text); font: inherit; text-align: left; cursor: pointer;
+            transition: border-color 0.2s var(--ease), background 0.2s var(--ease), transform 0.12s var(--ease);
+        }
+        .branch-card:hover { border-color: var(--accent); background: var(--field-focus); transform: translateY(-1px); }
+        .branch-card:active { transform: translateY(0); }
+        .branch-card__icon {
+            width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+            background: var(--accent-soft); color: var(--accent);
+            display: flex; align-items: center; justify-content: center; font-size: 20px;
+        }
+        .branch-card__name { font-size: 16px; font-weight: 700; flex: 1; }
+        .branch-card__tag {
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--accent); background: var(--accent-soft); padding: 4px 10px; border-radius: 100px;
+        }
     </style>
 </head>
 <body>
@@ -615,6 +701,42 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             </div>
 
             <div class="auth__body">
+            <?php if ($showBranchPicker): ?>
+                <div class="eyebrow reveal d2">Almost there, <?= htmlspecialchars(explode(' ', $_SESSION['pending_cashier']['full_name'])[0]) ?></div>
+                <h1 class="reveal d2">Which branch are you at?</h1>
+                <p class="auth__desc reveal d3">Pick your location to start your shift. This decides which products and sales you'll see today.</p>
+
+                <div class="banner <?= $error_state === 'invalid_branch' ? 'active' : '' ?>">
+                    <i class="ph-fill ph-warning-circle"></i>
+                    <div>
+                        <h4>Select a branch</h4>
+                        <p>Please choose a valid branch to continue.</p>
+                    </div>
+                </div>
+                <div class="banner <?= $error_state === 'branch_closed' ? 'active' : '' ?>">
+                    <i class="ph-fill ph-warning-circle"></i>
+                    <div>
+                        <h4>That shop is closed</h4>
+                        <p>This branch is closed for the day. Pick another branch, or check with your admin.</p>
+                    </div>
+                </div>
+
+                <form action="<?= htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST" id="branch-form">
+                    <input type="hidden" name="confirm_branch" value="1">
+                    <div class="branch-grid">
+                        <?php foreach ($branches as $i => $b): ?>
+                            <button type="submit" name="branch_id" value="<?= (int)$b['id'] ?>" class="branch-card reveal d<?= min(4 + $i, 6) ?>" <?= $b['is_open'] ? '' : 'disabled style="opacity:0.5; cursor:not-allowed;"' ?>>
+                                <span class="branch-card__icon"><i class="ph-fill ph-storefront"></i></span>
+                                <span class="branch-card__name"><?= htmlspecialchars($b['name']) ?></span>
+                                <?php if ($b['is_main']): ?><span class="branch-card__tag">Main</span><?php endif; ?>
+                                <?php if (!$b['is_open']): ?><span class="branch-card__tag" style="background:transparent;border:1px solid var(--border-strong);color:var(--text-faint);">Closed today</span><?php endif; ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </form>
+
+                <p class="signup reveal d6">Not <?= htmlspecialchars($_SESSION['pending_cashier']['full_name']) ?>? <a href="login.php?cancel=1">Sign in again</a></p>
+            <?php else: ?>
                 <div class="eyebrow reveal d2"><?= htmlspecialchars($greeting) ?></div>
                 <h1 class="reveal d2">Welcome back</h1>
                 <p class="auth__desc reveal d3">Sign in to access the Ozone control center. Your session is encrypted and monitored for security.</p>
@@ -622,8 +744,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 <div class="banner" id="error-banner">
                     <i class="ph-fill ph-warning-circle"></i>
                     <div>
-                        <h4>Access denied</h4>
-                        <p>The credentials you entered don't match our records. Please try again.</p>
+                        <h4 id="error-banner-title">Access denied</h4>
+                        <p id="error-banner-body">The credentials you entered don't match our records. Please try again.</p>
                     </div>
                 </div>
 
@@ -668,6 +790,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 </div>
 
                 <p class="signup reveal d6">Need access? <a href="#">Request an account</a></p>
+            <?php endif; ?>
             </div>
 
             <div class="auth__foot reveal d6">
@@ -732,49 +855,57 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 try { localStorage.setItem('ozone-theme', next); } catch (e) {}
             });
 
-            // Password visibility toggle
+            // Password visibility toggle (only present on the login form, not the branch picker)
             const pw = document.getElementById('password');
             const pwToggle = document.getElementById('toggle-password');
-            pwToggle.addEventListener('click', () => {
-                const show = pw.type === 'password';
-                pw.type = show ? 'text' : 'password';
-                pwToggle.innerHTML = show ? '<i class="ph ph-eye-slash"></i>' : '<i class="ph ph-eye"></i>';
-                pwToggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-            });
+            if (pw && pwToggle) {
+                pwToggle.addEventListener('click', () => {
+                    const show = pw.type === 'password';
+                    pw.type = show ? 'text' : 'password';
+                    pwToggle.innerHTML = show ? '<i class="ph ph-eye-slash"></i>' : '<i class="ph ph-eye"></i>';
+                    pwToggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+                });
+            }
 
-            // Inline validation styling
+            // Inline validation styling (login form only)
             const form = document.getElementById('login-form');
-            const submitBtn = document.getElementById('submit-btn');
-            const fUser = document.getElementById('f-username');
-            const fPass = document.getElementById('f-password');
-            const user = document.getElementById('username');
+            if (form) {
+                const submitBtn = document.getElementById('submit-btn');
+                const fUser = document.getElementById('f-username');
+                const fPass = document.getElementById('f-password');
+                const user = document.getElementById('username');
 
-            [ [user, fUser], [pw, fPass] ].forEach(([input, wrap]) => {
-                input.addEventListener('input', () => wrap.classList.remove('field--error'));
-            });
+                [ [user, fUser], [pw, fPass] ].forEach(([input, wrap]) => {
+                    input.addEventListener('input', () => wrap.classList.remove('field--error'));
+                });
 
-            form.addEventListener('submit', (e) => {
-                let valid = true;
-                if (!user.value.trim()) { fUser.classList.add('field--error'); valid = false; }
-                if (!pw.value.trim())   { fPass.classList.add('field--error'); valid = false; }
-                if (!valid) { e.preventDefault(); return; }
+                form.addEventListener('submit', (e) => {
+                    let valid = true;
+                    if (!user.value.trim()) { fUser.classList.add('field--error'); valid = false; }
+                    if (!pw.value.trim())   { fPass.classList.add('field--error'); valid = false; }
+                    if (!valid) { e.preventDefault(); return; }
 
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="ph-bold ph-spinner-gap ph-spin"></i><span>Signing in…</span>';
-            });
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="ph-bold ph-spinner-gap ph-spin"></i><span>Signing in…</span>';
+                });
 
-            // Server-side error feedback
-            const phpError = "<?= $error_state ?? '' ?>";
-            if (phpError) {
-                const banner = document.getElementById('error-banner');
-                banner.classList.add('active');
-                if (phpError === 'invalid_credentials') {
-                    fUser.classList.add('field--error');
-                    fPass.classList.add('field--error');
+                // Server-side error feedback
+                const phpError = "<?= $error_state ?? '' ?>";
+                if (phpError) {
+                    const banner = document.getElementById('error-banner');
+                    banner.classList.add('active');
+                    if (phpError === 'invalid_credentials') {
+                        fUser.classList.add('field--error');
+                        fPass.classList.add('field--error');
+                    }
+                    if (phpError === 'branch_closed') {
+                        document.getElementById('error-banner-title').textContent = 'Shop closed';
+                        document.getElementById('error-banner-body').textContent = 'This branch is closed for the day. Check with your admin.';
+                    }
+                    const body = document.querySelector('.auth__body');
+                    body.classList.add('shake');
+                    setTimeout(() => body.classList.remove('shake'), 460);
                 }
-                const body = document.querySelector('.auth__body');
-                body.classList.add('shake');
-                setTimeout(() => body.classList.remove('shake'), 460);
             }
         });
     </script>

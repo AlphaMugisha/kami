@@ -41,6 +41,15 @@
   style.textContent = css;
   document.head.appendChild(style);
 
+  /* ---- Mobile nav drawer toggle (public_nav.php hamburger) ------------ */
+  window.toggleNavDrawer = function () {
+    var drawer = document.getElementById('navDrawer');
+    var overlay = document.getElementById('navDrawerOverlay');
+    if (!drawer || !overlay) return;
+    drawer.classList.toggle('active');
+    overlay.classList.toggle('active');
+  };
+
   function ready(fn) {
     if (document.readyState !== 'loading') fn();
     else document.addEventListener('DOMContentLoaded', fn);

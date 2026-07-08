@@ -8,6 +8,15 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit();
 }
 
+// The QR/table-ordering feature only exists at Main Branch (a lounge feature);
+// Second Branch is a plain walk-in shop and never gets this page.
+require_once '../config/db.php';
+$mainBranchId = (int)($pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1);
+if (isset($_SESSION['branch_id']) && (int)$_SESSION['branch_id'] !== $mainBranchId) {
+    header("Location: index.php");
+    exit();
+}
+
 // ============================================================================
 // BULLETPROOF LIVE URL DETECTOR
 // Automatically finds your live domain and routes exactly to the menu
@@ -36,9 +45,15 @@ require '../includes/staff_header.php';
         .split-layout { display: flex; gap: 40px; height: calc(100vh - 160px); }
         .controls-panel { width: 400px; background: var(--kami-surface-2); padding: 32px; border-radius: 16px; border: 1px solid var(--kami-border); display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
         .preview-panel { flex: 1; background: var(--kami-surface-1); border-radius: 16px; display: flex; justify-content: center; align-items: center; overflow-y: auto; padding: 40px; position: relative; border: 1px solid var(--kami-border); }
+
+        @media (max-width: 768px) {
+            .split-layout { flex-direction: column; height: auto; gap: 20px; }
+            .controls-panel, .preview-panel { width: 100%; }
+            .preview-panel { padding: 24px 12px; }
+        }
         
         .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--kami-text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
-        .form-input { width: 100%; padding: 14px 16px; background: rgba(0,0,0,0.2); border: 1px solid var(--kami-border); color: #fff; border-radius: 8px; font-size: 15px; }
+        .form-input { width: 100%; padding: 14px 16px; background: rgba(0,0,0,0.2); border: 1px solid var(--kami-border); color: #fff; border-radius: 8px; font-size: 16px; }
         .form-input:focus { border-color: var(--kami-accent); outline: none; }
         
         .success-box { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 16px; border-radius: 8px; font-size: 13px; color: #34d399; line-height: 1.5; }

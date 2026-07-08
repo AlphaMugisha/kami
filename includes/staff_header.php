@@ -32,10 +32,12 @@ if ($staff_area === 'admin') {
         ],
         'Management & Audits' => [
             ['inventory.php', 'ph-package', 'Inventory'],
+            ['locations.php', 'ph-grid-four', 'Stock Locations'],
             ['restock.php', 'ph-shopping-cart-simple', 'Restock'],
             ['reports.php', 'ph-archive', 'Audit Reports'],
             ['history.php', 'ph-books', 'Shift History'],
             ['users.php', 'ph-users-three', 'Users'],
+            ['branches.php', 'ph-storefront', 'Branches'],
         ],
         'System' => [
             ['settings.php', 'ph-gear-six', 'Settings'],
@@ -43,15 +45,33 @@ if ($staff_area === 'admin') {
     ];
 } else {
     $brandBadge = 'POS';
+
+    // Live/table QR ordering is a Main Branch (lounge) feature only — Second
+    // Branch is a plain walk-in shop and never sees it. Admins browsing the
+    // cashier area (no $_SESSION['branch_id']) always see it.
+    $mainBranchId = (int)($pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1);
+    $showLiveOrdering = !isset($_SESSION['branch_id']) || (int)$_SESSION['branch_id'] === $mainBranchId;
+
+    $checkoutLinks = [
+        ['index.php', 'ph-shopping-bag', 'Sales Register'],
+    ];
+    if ($showLiveOrdering) {
+        $checkoutLinks[] = ['live_orders.php', 'ph-bell-ringing', 'Live Orders', true];
+    }
+
+    $accountLinks = [];
+    if ($showLiveOrdering) {
+        $accountLinks[] = ['qr_builder.php', 'ph-qr-code', 'QR Generator'];
+    }
+    $accountLinks[] = ['settings.php', 'ph-lock-key', 'Security Settings'];
+
     $navGroups = [
         'Overview' => [
             ['dashboard.php', 'ph-squares-four', 'My Shift'],
         ],
-        'Checkout' => [
-            ['index.php', 'ph-shopping-bag', 'Sales Register'],
-            ['live_orders.php', 'ph-bell-ringing', 'Live Orders', true],
-        ],
+        'Checkout' => $checkoutLinks,
         'Management' => [
+            ['classify.php', 'ph-truck', 'Classify Stock'],
             ['inventory.php', 'ph-package', 'Inventory'],
         ],
         'Shift Tools' => [
@@ -59,10 +79,7 @@ if ($staff_area === 'admin') {
             ['zreport.php', 'ph-receipt', 'Daily Z-Report'],
             ['history.php', 'ph-clock-counter-clockwise', 'Shift History'],
         ],
-        'Account' => [
-            ['qr_builder.php', 'ph-qr-code', 'QR Generator'],
-            ['settings.php', 'ph-lock-key', 'Security Settings'],
-        ],
+        'Account' => $accountLinks,
     ];
 }
 ?>

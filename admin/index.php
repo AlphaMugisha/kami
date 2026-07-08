@@ -12,36 +12,57 @@ require_once '../config/db.php';
 
 $userName = $_SESSION['full_name'] ?? 'Admin';
 
+// Branch filter — admins see every branch combined by default; picking one
+// narrows every stat below to just that location.
+$branches = $pdo->query("SELECT id, name, is_main FROM branches ORDER BY is_main DESC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$filter_branch_id = filter_input(INPUT_GET, 'branch', FILTER_VALIDATE_INT) ?: 0; // 0 = all branches
+
 // ==========================================
 // 2. LIVE DASHBOARD ANALYTICS ENGINE
 // ==========================================
 
 // A. Today's revenue
-$todaySales = (float)($pdo->query("SELECT SUM(total) FROM sales WHERE DATE(created_at) = CURDATE()")->fetchColumn() ?: 0);
+$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE DATE(created_at) = CURDATE() AND (:bid1 = 0 OR branch_id = :bid2)");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$todaySales = (float)($stmt->fetchColumn() ?: 0);
 
 // B. Yesterday's revenue (trend)
-$yesterdaySales = (float)($pdo->query("SELECT SUM(total) FROM sales WHERE DATE(created_at) = CURDATE() - INTERVAL 1 DAY")->fetchColumn() ?: 0);
+$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE DATE(created_at) = CURDATE() - INTERVAL 1 DAY AND (:bid1 = 0 OR branch_id = :bid2)");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$yesterdaySales = (float)($stmt->fetchColumn() ?: 0);
 $trendPercent = 0;
 if ($yesterdaySales > 0)      { $trendPercent = (($todaySales - $yesterdaySales) / $yesterdaySales) * 100; }
 elseif ($todaySales > 0)      { $trendPercent = 100; }
 
 // C. Items sold today
-$itemsSold = (int)($pdo->query("SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE DATE(s.created_at) = CURDATE()")->fetchColumn() ?: 0);
+$stmt = $pdo->prepare(
+    "SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON si.sale_id = s.id
+      WHERE DATE(s.created_at) = CURDATE() AND (:bid1 = 0 OR s.branch_id = :bid2)"
+);
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$itemsSold = (int)($stmt->fetchColumn() ?: 0);
 
 // D. Transactions today
-$txToday = (int)$pdo->query("SELECT COUNT(*) FROM sales WHERE DATE(created_at) = CURDATE()")->fetchColumn();
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM sales WHERE DATE(created_at) = CURDATE() AND (:bid1 = 0 OR branch_id = :bid2)");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$txToday = (int)$stmt->fetchColumn();
 
 // E. Low stock
-$lowStockCount = (int)$pdo->query("SELECT COUNT(*) FROM products WHERE stock <= 5")->fetchColumn();
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE stock <= 5 AND (:bid1 = 0 OR branch_id = :bid2)");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$lowStockCount = (int)$stmt->fetchColumn();
 
 // F. Recent transactions feed (last 8)
-$feed = $pdo->query("
+$stmt = $pdo->prepare("
     SELECT s.id, s.total, s.created_at, u.full_name
     FROM sales s
     LEFT JOIN users u ON s.cashier_id = u.id
+    WHERE (:bid1 = 0 OR s.branch_id = :bid2)
     ORDER BY s.created_at DESC
     LIMIT 8
-")->fetchAll(PDO::FETCH_ASSOC);
+");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
+$feed = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // G. Greeting + rotating quote
 date_default_timezone_set('Africa/Kigali');
@@ -65,6 +86,18 @@ require '../includes/staff_header.php';
 ?>
 
 <?php include '../includes/preloader.php'; ?>
+
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;" class="animate-fade-in">
+    <label class="form-label" for="dashBranchFilter" style="margin:0;">Showing</label>
+    <select id="dashBranchFilter" class="form-select" style="width:auto; min-width:200px;" onchange="location.href='index.php'+(this.value>0?'?branch='+this.value:'')">
+        <option value="0" <?= $filter_branch_id === 0 ? 'selected' : '' ?>>All Branches (combined)</option>
+        <?php foreach ($branches as $b): ?>
+            <option value="<?= (int)$b['id'] ?>" <?= $filter_branch_id === (int)$b['id'] ? 'selected' : '' ?>>
+                <?= htmlspecialchars($b['name']) ?><?= $b['is_main'] ? ' (Main)' : '' ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+</div>
 
 <!-- ════════ HERO BANNER ════════ -->
 <section class="kami-hero animate-fade-in">

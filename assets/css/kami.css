@@ -1216,3 +1216,29 @@ input:checked + .slider:before { transform: translateX(23px); }
   .kami-sidebar .kami-side-user { padding: 6px 0; background: transparent; border-color: transparent; }
   .kami-sidebar:hover .kami-side-user { padding: 10px; background: var(--kami-surface-2); border-color: var(--kami-border); }
 }
+
+/* ================================================================
+   MOBILE TABLE ROWS · progressive disclosure
+   ----------------------------------------------------------------
+   On the stacked mobile "card" rows, td.row-secondary stays hidden
+   until the row's .row-expand-btn (added as the row's last <td>) is
+   tapped — toggled by initRowExpanders() in ozone.js, which adds
+   .row-expanded to the <tr>. Desktop is untouched (btn stays hidden).
+   ================================================================ */
+.row-expand-cell { display: none; }
+@media (max-width: 768px) {
+  .data-table td.row-secondary { display: none !important; }
+  .data-table tr.row-expanded td.row-secondary { display: flex !important; }
+  .row-expand-cell::before { content: none !important; }
+  .row-expand-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; margin-top: 4px; padding: 10px;
+    background: var(--kami-surface-3); border: 1px solid var(--kami-border);
+    border-radius: var(--kami-radius-md);
+    color: var(--kami-text-muted); font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: color var(--kami-transition), border-color var(--kami-transition);
+  }
+  .row-expand-btn:hover { color: var(--kami-text); border-color: var(--kami-border-hover); }
+  .row-expand-btn i { transition: transform var(--kami-transition); }
+  tr.row-expanded .row-expand-btn i { transform: rotate(180deg); }
+}

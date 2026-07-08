@@ -79,14 +79,6 @@ $page_title = 'Staff Directory';
 require '../includes/staff_header.php';
 ?>
     <style>
-        /* Base Grid Setup */
-        .users-grid {
-            display: grid; 
-            grid-template-columns: minmax(300px, 360px) 1fr; 
-            gap: 20px; 
-            align-items: start; 
-        }
-
         /* Touch-Friendly Form Elements */
         .form-input, .form-select, .btn {
             box-sizing: border-box;
@@ -97,19 +89,19 @@ require '../includes/staff_header.php';
 
         .form-group { margin-bottom: 16px; }
 
+        /* Add-user modal (same idiom as admin/inventory.php) */
+        .modal-overlay-ui { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 9999; display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
+        .modal-overlay-ui.active { display: flex; opacity: 1; }
+        .modal-content { background: var(--kami-surface-1); border: 1px solid var(--kami-border); border-radius: 16px; padding: 32px; width: 100%; max-width: 420px; transform: translateY(20px); transition: transform 0.3s ease; box-shadow: 0 24px 48px rgba(0,0,0,0.5); }
+        .modal-overlay-ui.active .modal-content { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-close { background: none; border: none; color: var(--kami-text-muted); font-size: 24px; cursor: pointer; }
+        .modal-close:hover { color: var(--kami-text); }
+
         /* Custom Role Badges */
         .role-badge-admin { background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center;}
         .role-badge-cashier { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center;}
 
-        /* --- MOBILE MENU ELEMENTS (HIDDEN ON DESKTOP) --- */
-        .mobile-menu-btn { display: none; }
-        .sidebar-overlay { display: none; }
-
-        /* Tablet Layout */
-        @media (max-width: 1100px) { 
-            .users-grid { grid-template-columns: 1fr; } 
-        }
-        
         /* Mobile "Card View" Transformation */
         @media (max-width: 768px) {
             
@@ -140,39 +132,6 @@ require '../includes/staff_header.php';
                 margin-bottom: 20px !important; 
             }
 
-            /* Sidebar Slide Control */
-            .sidebar, aside {
-                position: fixed !important;
-                top: 0;
-                left: -300px !important;
-                width: 280px !important;
-                height: 100vh !important;
-                z-index: 1000 !important;
-                transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-                box-shadow: 4px 0 24px rgba(0,0,0,0.5);
-            }
-            
-            body.sidebar-open .sidebar, body.sidebar-open aside {
-                left: 0 !important;
-            }
-
-            /* Blurred background overlay when sidebar is open */
-            .sidebar-overlay {
-                display: block;
-                position: fixed;
-                top: 0; left: 0; right: 0; bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(3px);
-                z-index: 999;
-                opacity: 0;
-                pointer-events: none;
-                transition: opacity 0.3s ease;
-            }
-            body.sidebar-open .sidebar-overlay {
-                opacity: 1;
-                pointer-events: auto;
-            }
-
             /* Header Adjustments */
             .page-header-container {
                 display: flex;
@@ -180,25 +139,10 @@ require '../includes/staff_header.php';
                 gap: 16px;
                 margin-bottom: 24px;
             }
-            .mobile-menu-btn {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: var(--kami-surface-3);
-                border: 1px solid var(--kami-border) !important; 
-                border-radius: var(--kami-radius-sm);
-                width: 44px;
-                height: 44px;
-                color: var(--kami-text);
-                cursor: pointer;
-                flex-shrink: 0;
-            }
             .page-header { margin-bottom: 0 !important; }
             .page-header p { display: none; }
             .page-header h1 { font-size: 1.5rem; }
             .card-header h3 { font-size: 1.2rem; }
-
-            .users-grid { display: flex; flex-direction: column; gap: 0; }
 
             /* =========================================
                TRUE MOBILE TABLE REWRITE (CARDS)
@@ -252,54 +196,26 @@ require '../includes/staff_header.php';
             
             .data-table td[data-label="Actions"] { margin-top: 8px; }
             .data-table td[data-label="Actions"]::before { display: none; /* Hide 'Actions' text to make button full width */ }
+
+            /* Modal mobile fixes */
+            .modal-content { padding: 24px; width: 90%; }
         }
     </style>
 
         <h1 class="kami-page-title">Staff Accounts Directory</h1>
         <p class="kami-page-sub">Enroll system cashiers &amp; configure operational permission levels.</p>
 
-        <div class="users-grid animate-fade-in">
-            
-            <!-- Enroll Form Card -->
-            <div class="card glass">
-                <div class="card-header" style="border:none; padding:0;">
-                    <h3 style="margin: 0;"><i class="ph-bold ph-user-plus"></i> Enroll Personnel</h3>
-                </div>
-                
-                <form action="users.php" method="POST">
-                    <div class="form-group">
-                        <label class="form-label">Full Name</label>
-                        <input type="text" name="full_name" class="form-input" required placeholder="Jane Cashier">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">System Username</label>
-                        <input type="text" name="username" class="form-input" required placeholder="e.g. jane.c" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Temporary Password</label>
-                        <input type="password" name="password" class="form-input" required placeholder="••••••••">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Clearance Role</label>
-                        <select name="role" class="form-select" required>
-                            <option value="cashier">Standard Cashier (POS Only)</option>
-                            <option value="admin">Admin (Full System Access)</option>
-                        </select>
-                    </div>
-                    
-                    <button type="submit" name="add_user" class="btn btn-primary btn-block" style="margin-top: 16px;">
-                        <i class="ph-bold ph-shield-check"></i> <span>Deploy Account</span>
-                    </button>
-                </form>
-            </div>
-
-            <!-- Active Directory Card -->
-            <div class="card glass">
+        <div class="card glass animate-fade-in">
                 <div class="card-header" style="border:none; padding:0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <h3 style="margin: 0;"><i class="ph-bold ph-users-three"></i> Active Directory</h3>
-                    <div class="badge badge-info" style="padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;"><?= count($users) ?> Enrolled</div>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <div class="badge badge-info" style="padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;"><?= count($users) ?> Enrolled</div>
+                        <button type="button" class="btn btn-primary" onclick="openEnrollModal()">
+                            <i class="ph-bold ph-user-plus"></i> Enroll Personnel
+                        </button>
+                    </div>
                 </div>
-                
+
                 <div class="data-table-container">
                     <table class="data-table">
                         <thead>
@@ -352,8 +268,54 @@ require '../includes/staff_header.php';
                         </tbody>
                     </table>
                 </div>
-            </div>
         </div>
+
+    <div class="modal-overlay-ui" id="enrollModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="ph-bold ph-user-plus"></i> Enroll Personnel</h3>
+                <button class="modal-close" onclick="closeEnrollModal()"><i class="ph ph-x"></i></button>
+            </div>
+
+            <form action="users.php" method="POST">
+                <div class="form-group">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" name="full_name" class="form-input" required placeholder="Jane Cashier">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">System Username</label>
+                    <input type="text" name="username" class="form-input" required placeholder="e.g. jane.c" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Temporary Password</label>
+                    <input type="password" name="password" class="form-input" required placeholder="••••••••">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Clearance Role</label>
+                    <select name="role" class="form-select" required>
+                        <option value="cashier">Standard Cashier (POS Only)</option>
+                        <option value="admin">Admin (Full System Access)</option>
+                    </select>
+                </div>
+
+                <button type="submit" name="add_user" class="btn btn-primary btn-block" style="margin-top: 16px;">
+                    <i class="ph-bold ph-shield-check"></i> <span>Deploy Account</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openEnrollModal() {
+            document.getElementById('enrollModal').classList.add('active');
+        }
+        function closeEnrollModal() {
+            document.getElementById('enrollModal').classList.remove('active');
+        }
+        document.getElementById('enrollModal').addEventListener('click', function (e) {
+            if (e.target === this) closeEnrollModal();
+        });
+    </script>
 
     <?php if ($success_msg): ?>
         <script>

@@ -58,6 +58,10 @@ $page_title  = 'Security Settings';
 $page_styles = '<style>
     .settings-container { display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 600px; margin: 0 auto; }
     .settings-container .form-group label { display: block; font-size: 13px; font-weight: 700; color: var(--kami-text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .password-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    @media (max-width: 620px) {
+        .password-row { grid-template-columns: 1fr; }
+    }
 </style>';
 require '../includes/staff_header.php';
 ?>
@@ -76,7 +80,7 @@ require '../includes/staff_header.php';
                         <input type="password" name="current_password" class="form-input" required placeholder="Verify your current identity" autocomplete="current-password">
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                    <div class="password-row">
                         <div class="form-group">
                             <label>New Password</label>
                             <input type="password" name="new_password" class="form-input" required placeholder="Minimum 6 characters" autocomplete="new-password">

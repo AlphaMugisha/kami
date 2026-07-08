@@ -68,16 +68,17 @@ if ($action === 'edit_batch') {
 
         $stmt = $pdo->prepare("SELECT product_id FROM stock_batches WHERE id = :id FOR UPDATE");
         $stmt->execute(['id' => $batch_id]);
-        $product_id = $stmt->fetchColumn();
-        if ($product_id === false) {
+        $batch_row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($batch_row === false) {
             throw new RuntimeException('Batch not found.');
         }
-        $product_id = (int)$product_id;
+        $product_id = (int)$batch_row['product_id'];
 
         $stmt = $pdo->prepare("UPDATE stock_batches SET buying_price = :buy, selling_price = :sell WHERE id = :id");
         $stmt->execute(['buy' => $buying, 'sell' => $selling, 'id' => $batch_id]);
 
-        // If this batch is the most recent one for the product, refresh the cache.
+        // If this batch is the most recent one for the product across every
+        // location (products are a shared catalog), refresh the cache.
         $stmt = $pdo->prepare(
             "SELECT id FROM stock_batches WHERE product_id = :pid ORDER BY purchased_at DESC, id DESC LIMIT 1"
         );
@@ -112,6 +113,19 @@ if ($action === 'batch_save') {
         respond(false, 'There are no rows to save.');
     }
 
+    // Products are one shared catalog now — every restock lands in a real,
+    // named location (defaults to the warehouse), and that location's own
+    // branch is what the new batches get stamped with.
+    $location_id = filter_input(INPUT_POST, 'location_id', FILTER_VALIDATE_INT);
+    if (!$location_id) {
+        respond(false, 'Please select which location this restock is for.');
+    }
+    try {
+        $branch_id = get_location_branch($pdo, $location_id);
+    } catch (InvalidArgumentException $e) {
+        respond(false, 'That location no longer exists.');
+    }
+
     $restocked = 0; $repriced = 0; $created = 0;
 
     try {
@@ -141,11 +155,11 @@ if ($action === 'batch_save') {
             }
 
             $was_created = false;
-            $pid = resolve_or_create_product($pdo, $pidIn, $name, $sell, $buy, $was_created);
+            $pid = resolve_or_create_product($pdo, $branch_id, $pidIn, $name, $sell, $buy, $was_created);
             if ($was_created) $created++;
 
             if ($qty > 0) {
-                log_restock($pdo, $pid, $qty, $buy, $sell, null, 'Bulk grid entry', $user_id);
+                log_restock($pdo, $branch_id, $pid, $qty, $buy, $sell, null, 'Bulk grid entry', $user_id, $location_id);
                 $restocked++;
             } else {
                 update_product_prices($pdo, $pid, $buy, $sell);
@@ -181,15 +195,16 @@ $buying       = filter_input(INPUT_POST, 'buying_price', FILTER_VALIDATE_FLOAT);
 $selling      = filter_input(INPUT_POST, 'selling_price', FILTER_VALIDATE_FLOAT);
 $purchased_at = $_POST['purchased_at'] ?? null;
 $notes        = $_POST['notes'] ?? null;
+$location_id  = filter_input(INPUT_POST, 'location_id', FILTER_VALIDATE_INT);
 
-if (!$product_id || !$quantity || $quantity <= 0 || $buying === false || $selling === false || $buying < 0 || $selling < 0) {
-    respond(false, 'Please fill in a product, a positive quantity, and valid prices.');
+if (!$product_id || !$quantity || $quantity <= 0 || $buying === false || $selling === false || $buying < 0 || $selling < 0 || !$location_id) {
+    respond(false, 'Please fill in a product, a location, a positive quantity, and valid prices.');
 }
 
 try {
     $pdo->beginTransaction();
 
-    // Guard: product must exist.
+    // Guard: product must exist in the shared catalog.
     $stmt = $pdo->prepare("SELECT name FROM products WHERE id = :id");
     $stmt->execute(['id' => $product_id]);
     $product_name = $stmt->fetchColumn();
@@ -197,7 +212,12 @@ try {
         throw new RuntimeException('Selected product does not exist.');
     }
 
-    $batch_id = log_restock($pdo, $product_id, $quantity, (float)$buying, (float)$selling, $purchased_at, $notes, $user_id);
+    // Every restock lands in a real, named location (any product can restock
+    // into any location — e.g. straight into the shared warehouse); that
+    // location's own branch is what the new batch gets stamped with.
+    $branch_id = get_location_branch($pdo, $location_id);
+
+    $batch_id = log_restock($pdo, $branch_id, $product_id, $quantity, (float)$buying, (float)$selling, $purchased_at, $notes, $user_id, $location_id);
 
     // Read back the fresh cached values for the UI.
     $stmt = $pdo->prepare("SELECT stock, buying_price, selling_price FROM products WHERE id = :id");

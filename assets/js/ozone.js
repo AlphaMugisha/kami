@@ -263,8 +263,18 @@ function initStaffShell() {
   });
 }
 
+/* Mobile data-table rows: tap "Details" to reveal secondary columns (td.row-secondary). */
+function initRowExpanders() {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.row-expand-btn');
+    if (!btn) return;
+    var row = btn.closest('tr');
+    if (row) row.classList.toggle('row-expanded');
+  });
+}
+
 (function () {
-  function boot() { initLiveClock(); initStaffShell(); }
+  function boot() { initLiveClock(); initStaffShell(); initRowExpanders(); }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else { boot(); }

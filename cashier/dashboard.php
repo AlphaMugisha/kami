@@ -12,19 +12,20 @@ require_once '../config/db.php';
 
 $cashierId = (int)$_SESSION['user_id'];
 $userName  = $_SESSION['full_name'] ?? 'Cashier';
+$branchId  = (int)($_SESSION['branch_id'] ?? 1);
 
 // ==========================================
-// 2. PERSONAL SHIFT ANALYTICS ENGINE
+// 2. PERSONAL SHIFT ANALYTICS ENGINE (scoped to the branch this shift is at)
 // ==========================================
 
 // A. My revenue today
-$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE cashier_id = ? AND DATE(created_at) = CURDATE()");
-$stmt->execute([$cashierId]);
+$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE cashier_id = ? AND branch_id = ? AND DATE(created_at) = CURDATE()");
+$stmt->execute([$cashierId, $branchId]);
 $todaySales = (float)($stmt->fetchColumn() ?: 0);
 
 // B. My revenue yesterday (trend basis)
-$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE cashier_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY");
-$stmt->execute([$cashierId]);
+$stmt = $pdo->prepare("SELECT SUM(total) FROM sales WHERE cashier_id = ? AND branch_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY");
+$stmt->execute([$cashierId, $branchId]);
 $yesterdaySales = (float)($stmt->fetchColumn() ?: 0);
 
 $trendPercent = 0;
@@ -32,13 +33,13 @@ if ($yesterdaySales > 0)      { $trendPercent = (($todaySales - $yesterdaySales)
 elseif ($todaySales > 0)      { $trendPercent = 100; }
 
 // C. Transactions rung today
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM sales WHERE cashier_id = ? AND DATE(created_at) = CURDATE()");
-$stmt->execute([$cashierId]);
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM sales WHERE cashier_id = ? AND branch_id = ? AND DATE(created_at) = CURDATE()");
+$stmt->execute([$cashierId, $branchId]);
 $txCount = (int)$stmt->fetchColumn();
 
 // D. Current shift status
-$stmt = $pdo->prepare("SELECT clock_in, starting_cash FROM shifts WHERE cashier_id = ? AND status = 'active' ORDER BY clock_in DESC LIMIT 1");
-$stmt->execute([$cashierId]);
+$stmt = $pdo->prepare("SELECT clock_in, starting_cash FROM shifts WHERE cashier_id = ? AND branch_id = ? AND status = 'active' ORDER BY clock_in DESC LIMIT 1");
+$stmt->execute([$cashierId, $branchId]);
 $activeShift = $stmt->fetch(PDO::FETCH_ASSOC);
 $onShift = (bool)$activeShift;
 
@@ -49,12 +50,49 @@ if ($onShift) {
     $shiftDuration = floor($mins / 60) . 'h ' . ($mins % 60) . 'm';
 }
 
-// E. Pending tables awaiting checkout (shared)
-$pendingTables = (int)$pdo->query("SELECT COUNT(*) FROM qr_orders WHERE status IN ('pending','preparing')")->fetchColumn();
+// E. Pending tables awaiting checkout — Main Branch only (lounge/QR-ordering
+// feature; Second Branch is a plain walk-in shop and never has these).
+$mainBranchId = (int)($pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1);
+$showLiveOrdering = $branchId === $mainBranchId;
+$pendingTables = 0;
+if ($showLiveOrdering) {
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM qr_orders WHERE status IN ('pending','preparing') AND branch_id = :bid");
+    $stmt->execute(['bid' => $mainBranchId]);
+    $pendingTables = (int)$stmt->fetchColumn();
+}
+
+// F2. Refills awaiting confirmation at this branch — the cashier taps "Mark
+// as Received" once the delivery physically arrives, which is what actually
+// makes it sellable stock (see receive_transfer() in stock_functions.php).
+$stmt = $pdo->prepare("
+    SELECT t.id, t.quantity, t.transferred_at, p.name AS product_name, tl.name AS to_name, fb.name AS from_branch
+      FROM stock_transfers t
+      JOIN products p ON t.product_id = p.id
+      JOIN stock_locations tl ON t.to_location_id = tl.id
+      JOIN stock_locations fl ON t.from_location_id = fl.id
+      JOIN branches fb ON fl.branch_id = fb.id
+     WHERE tl.branch_id = :bid AND t.status = 'pending'
+     ORDER BY t.transferred_at ASC
+");
+$stmt->execute(['bid' => $branchId]);
+$pendingRefills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// F3. Recently confirmed refills, for a quick "yep that arrived" history.
+$stmt = $pdo->prepare("
+    SELECT t.quantity, t.received_at, p.name AS product_name, tl.name AS to_name
+      FROM stock_transfers t
+      JOIN products p ON t.product_id = p.id
+      JOIN stock_locations tl ON t.to_location_id = tl.id
+     WHERE tl.branch_id = :bid AND t.status = 'received' AND t.received_at IS NOT NULL
+     ORDER BY t.received_at DESC
+     LIMIT 5
+");
+$stmt->execute(['bid' => $branchId]);
+$recentRefills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // F. My recent sales (feed)
-$stmt = $pdo->prepare("SELECT id, total, created_at FROM sales WHERE cashier_id = ? ORDER BY created_at DESC LIMIT 8");
-$stmt->execute([$cashierId]);
+$stmt = $pdo->prepare("SELECT id, total, created_at FROM sales WHERE cashier_id = ? AND branch_id = ? ORDER BY created_at DESC LIMIT 8");
+$stmt->execute([$cashierId, $branchId]);
 $feed = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Shift goal calculation
@@ -79,6 +117,11 @@ $quote = $quotes[(int)date('z') % count($quotes)];
 // 3. SHELL
 $staff_area = 'cashier';
 $page_title = 'My Shift';
+if (!$showLiveOrdering) {
+    // No Pending Tables card at this branch — reflow the row to 3 even columns
+    // instead of leaving a blank gap from the fixed 4-column grid.
+    $page_styles = '<style>@media (min-width: 769px) { .kami-stat-row { grid-template-columns: repeat(3, 1fr); } }</style>';
+}
 require '../includes/staff_header.php';
 ?>
 
@@ -132,14 +175,78 @@ require '../includes/staff_header.php';
         <div class="stat-detail"><?= $txCount === 1 ? '1 sale' : $txCount.' sales' ?> rung today</div>
     </a>
 
+    <?php if ($showLiveOrdering): ?>
     <a href="live_orders.php" class="kami-stat-card animate-fade-in" style="text-decoration:none; color:inherit;">
         <div class="stat-ic <?= $pendingTables > 0 ? 'danger' : 'success' ?>"><i class="ph-fill <?= $pendingTables > 0 ? 'ph-bell-ringing' : 'ph-check-circle' ?>"></i></div>
         <div class="stat-num" style="color: <?= $pendingTables > 0 ? 'var(--kami-danger)' : 'var(--kami-success)' ?>;"><?= $pendingTables ?></div>
         <div class="stat-name">Pending Tables</div>
         <div class="stat-detail"><?= $pendingTables > 0 ? 'awaiting checkout' : 'all tables cleared' ?></div>
     </a>
+    <?php endif; ?>
 
 </div>
+
+<?php if (!empty($pendingRefills)): ?>
+<!-- ════════ REFILLS AWAITING CONFIRMATION ════════ -->
+<section class="kami-feed-card animate-fade-in" style="margin-bottom: 20px; border: 1px solid var(--kami-warning-border);" id="pendingRefillsCard">
+    <div class="feed-head">
+        <h3><i class="ph-fill ph-truck"></i> Refill On The Way — Confirm It Arrived</h3>
+    </div>
+    <?php foreach ($pendingRefills as $r): ?>
+        <div class="feed-item" id="pending-refill-<?= (int)$r['id'] ?>">
+            <div class="feed-ic" style="color: var(--kami-warning);"><i class="ph-fill ph-truck"></i></div>
+            <div class="feed-meta">
+                <div class="feed-title"><?= (int)$r['quantity'] ?> × <?= htmlspecialchars($r['product_name']) ?></div>
+                <div class="feed-sub">from <?= htmlspecialchars($r['from_branch']) ?>, sent <?= date('M j, g:i A', strtotime($r['transferred_at'])) ?></div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="markRefillReceived(<?= (int)$r['id'] ?>)">
+                <i class="ph-bold ph-check-circle"></i> Mark Received
+            </button>
+        </div>
+    <?php endforeach; ?>
+</section>
+<script>
+    async function markRefillReceived(transferId) {
+        try {
+            const fd = new FormData();
+            fd.append('transfer_id', transferId);
+            const res = await fetch('../api/receive_transfer.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.success) {
+                const row = document.getElementById('pending-refill-' + transferId);
+                if (row) row.remove();
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Refill Confirmed', data.message, 'success');
+                setTimeout(function () { location.reload(); }, 1200);
+            } else {
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Could Not Confirm', data.message || 'Unknown error', 'error');
+            }
+        } catch (err) {
+            if (window.triggerDynamicIsland) window.triggerDynamicIsland('Network Error', 'Could not reach the server.', 'error');
+        }
+    }
+</script>
+<?php endif; ?>
+
+<?php if (!empty($recentRefills)): ?>
+<!-- ════════ RECENTLY CONFIRMED REFILLS ════════ -->
+<section class="kami-feed-card animate-fade-in" style="margin-bottom: 20px;">
+    <div class="feed-head">
+        <h3><i class="ph-fill ph-package"></i> Recently Refilled</h3>
+    </div>
+    <?php foreach ($recentRefills as $r):
+        $isRecent = (time() - strtotime($r['received_at'])) < 7200; // last 2 hours
+    ?>
+        <div class="feed-item">
+            <div class="feed-ic" style="<?= $isRecent ? 'color: var(--kami-success);' : '' ?>"><i class="ph-fill ph-package"></i></div>
+            <div class="feed-meta">
+                <div class="feed-title"><?= (int)$r['quantity'] ?> × <?= htmlspecialchars($r['product_name']) ?></div>
+                <div class="feed-sub">into <?= htmlspecialchars($r['to_name']) ?><?= $isRecent ? ' — just now' : '' ?></div>
+            </div>
+            <div class="feed-time"><?= date('M j, g:i A', strtotime($r['received_at'])) ?></div>
+        </div>
+    <?php endforeach; ?>
+</section>
+<?php endif; ?>
 
 <!-- ════════ ACTIVITY FEED ════════ -->
 <section class="kami-feed-card animate-fade-in">

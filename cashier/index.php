@@ -11,9 +11,57 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 require_once '../config/db.php';
 
-// Fetch all available products (including category) to inject into the JavaScript engine
-$stmt = $pdo->query("SELECT id, sku, name, category, price, stock FROM products WHERE stock > 0 ORDER BY name ASC");
+// Branch context: cashiers picked one at login ($_SESSION['branch_id']); an admin
+// browsing the POS falls back to whichever branch they're currently managing.
+$branch_id = (int)($_SESSION['branch_id'] ?? $_SESSION['admin_branch_id'] ?? 0);
+if (!$branch_id) {
+    $mainBranch = $pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn();
+    $branch_id = $mainBranch ? (int)$mainBranch : 1;
+}
+
+// The Sale page only ever sells from the two sellable shelves — Hanging and
+// Fridge. Shop Arrivals (holding, not yet classified) and Big Stock
+// (warehouse) never appear here.
+$stmt = $pdo->prepare("SELECT id, name FROM stock_locations WHERE branch_id = :bid AND name IN ('Hanging', 'Fridge') ORDER BY FIELD(name, 'Hanging', 'Fridge')");
+$stmt->execute(['bid' => $branch_id]);
+$sellLocations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$hangingLoc = null;
+$fridgeLoc = null;
+foreach ($sellLocations as $l) {
+    if ($l['name'] === 'Hanging') $hangingLoc = $l;
+    if ($l['name'] === 'Fridge')  $fridgeLoc  = $l;
+}
+$hangingLocId = $hangingLoc ? (int)$hangingLoc['id'] : null;
+$fridgeLocId  = $fridgeLoc  ? (int)$fridgeLoc['id']  : null;
+
+// Fetch all available products (including category) to inject into the JavaScript engine.
+// Products are one shared catalog now — visible here if marked shared, or
+// explicitly exclusive to this branch.
+$stmt = $pdo->prepare("SELECT id, sku, name, category, price, stock FROM products WHERE stock > 0 AND (shared = 1 OR branch_id = :bid) ORDER BY name ASC");
+$stmt->execute(['bid' => $branch_id]);
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Attach each product's per-location stock at Hanging/Fridge only, so the POS
+// can filter/cap by "what's actually on that specific shelf."
+$sell_location_ids = array_values(array_filter([$hangingLocId, $fridgeLocId]));
+if ($sell_location_ids) {
+    $in = implode(',', array_fill(0, count($sell_location_ids), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT product_id, location_id, SUM(quantity_remaining) AS qty
+           FROM stock_batches
+          WHERE branch_id = ? AND location_id IN ($in) AND quantity_remaining > 0
+          GROUP BY product_id, location_id"
+    );
+    $stmt->execute(array_merge([$branch_id], $sell_location_ids));
+    $locStockMap = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $locStockMap[(int)$row['product_id']][(int)$row['location_id']] = (int)$row['qty'];
+    }
+    foreach ($products as &$p) {
+        $p['location_stock'] = $locStockMap[(int)$p['id']] ?? [];
+    }
+    unset($p);
+}
 ?>
 <?php
 $staff_area = 'cashier';
@@ -33,11 +81,11 @@ require '../includes/staff_header.php';
             padding: 0;
         }
 
-        .products-pane { 
-            flex: 1; 
-            display: flex; 
-            flex-direction: column; 
-            overflow: hidden; 
+        .products-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             padding: 28px;
             border-radius: var(--kami-radius-xl);
         }
@@ -108,36 +156,66 @@ require '../includes/staff_header.php';
             box-shadow: var(--kami-glow);
         }
 
-        .product-grid-scroll {
+        /* Two-grid layout: Hanging + Fridge side by side, stacked on mobile */
+        .dual-grid-wrap {
             flex: 1;
-            overflow-y: auto;
-            padding-right: 4px;
+            display: flex;
+            gap: 20px;
+            overflow: hidden;
             padding-top: 12px;
             border-top: 1px solid var(--kami-border);
         }
 
+        .pos-location-col {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .pos-location-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--kami-text-muted);
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+        .pos-location-head i { color: var(--kami-accent); font-size: 16px; }
+
+        .product-grid-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
         /* Cart layout */
-        .register-pane { 
-            width: 420px; 
-            display: flex; 
-            flex-direction: column; 
+        .register-pane {
+            width: 420px;
+            display: flex;
+            flex-direction: column;
             padding: 28px;
             border-radius: var(--kami-radius-xl);
         }
-        
-        .cart-items { 
-            flex: 1; 
-            overflow-y: auto; 
-            margin-bottom: 20px; 
-            padding-right: 4px; 
+
+        .cart-items {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding-right: 4px;
         }
 
         /* 2026 Cart rows styling */
-        .cart-item { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            padding: 12px 16px; 
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
             background: rgba(255, 255, 255, 0.02);
             border: 1px solid var(--kami-border);
             border-radius: var(--kami-radius-md);
@@ -165,35 +243,35 @@ require '../includes/staff_header.php';
         }
 
         /* Dynamic stepper controls */
-        .qty-controls { 
-            display: flex; 
-            align-items: center; 
-            gap: 10px; 
-            background: var(--kami-surface-3); 
-            padding: 6px 12px; 
-            border-radius: var(--kami-radius-full); 
-            border: 1px solid var(--kami-border); 
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--kami-surface-3);
+            padding: 6px 12px;
+            border-radius: var(--kami-radius-full);
+            border: 1px solid var(--kami-border);
         }
 
-        .qty-btn { 
-            background: none; 
-            border: none; 
-            color: var(--kami-text-muted); 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
+        .qty-btn {
+            background: none;
+            border: none;
+            color: var(--kami-text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             font-size: 13px;
             width: 20px;
             height: 20px;
             transition: all var(--kami-transition);
         }
 
-        .qty-btn:hover { 
-            color: var(--kami-text); 
+        .qty-btn:hover {
+            color: var(--kami-text);
             transform: scale(1.15);
         }
-        
+
         .qty-val {
             font-size: 14px;
             font-weight: 700;
@@ -201,34 +279,34 @@ require '../includes/staff_header.php';
             text-align: center;
         }
 
-        .register-totals { 
-            border-top: 1px solid var(--kami-border); 
-            padding-top: 20px; 
+        .register-totals {
+            border-top: 1px solid var(--kami-border);
+            padding-top: 20px;
         }
 
-        .total-row { 
-            display: flex; 
-            justify-content: space-between; 
-            margin-bottom: 8px; 
-            font-size: 14px; 
-            color: var(--kami-text-muted); 
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: var(--kami-text-muted);
             font-weight: 600;
         }
 
-        .total-row.grand-total { 
-            font-size: 28px; 
-            font-weight: 700; 
-            color: var(--kami-text); 
-            margin-bottom: 24px; 
-            margin-top: 12px; 
+        .total-row.grand-total {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--kami-text);
+            margin-bottom: 24px;
+            margin-top: 12px;
             font-family: 'Space Grotesk', sans-serif;
             letter-spacing: -0.04em;
         }
 
         .pos-action-grid {
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 12px; 
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
         }
 
         /* Thermal Receipt Print Styles */
@@ -246,14 +324,48 @@ require '../includes/staff_header.php';
         .recall-card { background: var(--kami-surface-2); border: 1px solid var(--kami-border); padding: 16px; border-radius: var(--kami-radius-lg); cursor: pointer; transition: all 0.2s ease; }
         .recall-card:hover { border-color: var(--kami-accent); background: var(--kami-surface-3); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 9999; display: none; align-items: center; justify-content: center; }
-        .modal-content { background: var(--kami-surface-1); border: 1px solid var(--kami-border); width: 450px; border-radius: var(--kami-radius-xl); padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .modal-content { width: min(450px, calc(100vw - 32px)); background: var(--kami-surface-1); border: 1px solid var(--kami-border); border-radius: var(--kami-radius-xl); padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+
+        /* Mobile view-toggle (Products / Cart) — hidden on desktop */
+        .pos-view-toggle { display: none; gap: 8px; margin-bottom: 14px; }
+        .pos-view-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: var(--kami-surface-2); border: 1px solid var(--kami-border); border-radius: var(--kami-radius-full); font-weight: 700; font-size: 13px; color: var(--kami-text-muted); cursor: pointer; }
+        .pos-view-btn.active { background: var(--kami-accent); color: #000000; border-color: var(--kami-accent-hover); }
+        .pos-cart-badge { background: rgba(0,0,0,0.25); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+        .pos-view-btn.active .pos-cart-badge { background: rgba(0,0,0,0.35); }
+
+        /* ── Mobile POS: stack panes, swap between them with the toggle above ── */
+        @media (max-width: 768px) {
+            .kami-content { padding: 14px; }
+            .pos-container { flex-direction: column; height: auto; overflow: visible; }
+            .products-pane, .register-pane { width: 100%; }
+            .pos-view-toggle { display: flex; }
+            .register-pane { display: none; }
+            body.pos-view-cart .register-pane { display: flex; }
+            body.pos-view-cart .products-pane { display: none; }
+            .pos-search-wrapper { max-width: none; }
+            .qty-btn { width: 40px; height: 40px; font-size: 16px; }
+
+            /* Stack the two shelf grids instead of side-by-side on small screens */
+            .dual-grid-wrap { flex-direction: column; overflow: visible; }
+            .pos-location-col { overflow: visible; }
+            .product-grid-scroll { overflow-y: visible; }
+        }
     </style>
+
+    <div class="pos-view-toggle">
+        <button type="button" class="pos-view-btn active" id="posViewProductsBtn" onclick="setPosView('products')">
+            <i class="ph-bold ph-wine"></i> Products
+        </button>
+        <button type="button" class="pos-view-btn" id="posViewCartBtn" onclick="setPosView('cart')">
+            <i class="ph-bold ph-shopping-cart-simple"></i> Cart <span id="posCartBadge" class="pos-cart-badge" style="display:none;">0</span>
+        </button>
+    </div>
 
     <div class="pos-container animate-fade-in">
         <div class="products-pane card glass">
             <div class="pos-header-actions">
                 <h2 style="font-size: 24px; font-weight: 700; color: var(--kami-text); font-family: 'Space Grotesk';">Sales Register</h2>
-                
+
                 <div class="pos-search-wrapper">
                     <i class="ph ph-magnifying-glass"></i>
                     <input type="text" class="form-input pos-search-input" id="productSearch" placeholder="Search product name or SKU...">
@@ -269,9 +381,19 @@ require '../includes/staff_header.php';
                 <div class="category-capsule" data-category="Beer" onclick="selectCategory('Beer')">Beer</div>
             </div>
 
-            <div class="product-grid-scroll">
-                <div class="product-grid" id="productGrid">
+            <div class="dual-grid-wrap">
+                <div class="pos-location-col">
+                    <div class="pos-location-head"><i class="ph-fill ph-coat-hanger"></i> Hanging</div>
+                    <div class="product-grid-scroll">
+                        <div class="product-grid" id="hangingGrid"></div>
                     </div>
+                </div>
+                <div class="pos-location-col">
+                    <div class="pos-location-head"><i class="ph-fill ph-snowflake"></i> Fridge</div>
+                    <div class="product-grid-scroll">
+                        <div class="product-grid" id="fridgeGrid"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -285,7 +407,7 @@ require '../includes/staff_header.php';
                     <button class="btn btn-secondary btn-sm" onclick="clearCart()">Clear</button>
                 </div>
             </div>
-            
+
             <div class="cart-items" id="cartItems">
                 <div style="text-align: center; color: var(--kami-text-dim); margin-top: 100px;">
                     <div style="width: 56px; height: 56px; border-radius: 50%; background: var(--kami-surface-3); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; border: 1px solid var(--kami-border);">
@@ -328,7 +450,7 @@ require '../includes/staff_header.php';
                 <h2 style="font-size: 18px; color: var(--kami-text); font-weight: 700; margin: 0;"><i class="ph-bold ph-bell-ringing" style="color: var(--kami-accent);"></i> Pending Tables</h2>
                 <button onclick="closeRecallModal()" style="background: transparent; border: none; color: var(--kami-text-muted); font-size: 20px; cursor: pointer;"><i class="ph-bold ph-x"></i></button>
             </div>
-            
+
             <div id="recallList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
                 <p style="color: var(--kami-text-muted); text-align: center; font-style: italic;">Loading orders...</p>
             </div>
@@ -364,14 +486,22 @@ require '../includes/staff_header.php';
 
     <script>
         const inventory = <?= json_encode($products); ?>;
+        const HANGING_LOC_ID = <?= $hangingLocId !== null ? (int)$hangingLocId : 'null' ?>;
+        const FRIDGE_LOC_ID = <?= $fridgeLocId !== null ? (int)$fridgeLocId : 'null' ?>;
         let cart = {};
         let activeCategory = 'All';
-        
+
+        // Stock ceiling for a product at a specific shelf location.
+        function stockFor(product, locId) {
+            return (product.location_stock && product.location_stock[locId]) || 0;
+        }
+
         // NEW: Track if we are cashing out a specific QR order
         let activeQrOrderId = null;
         let pendingTableOrders = [];
 
-        const productGrid = document.getElementById('productGrid');
+        const hangingGrid = document.getElementById('hangingGrid');
+        const fridgeGrid = document.getElementById('fridgeGrid');
         const cartItemsContainer = document.getElementById('cartItems');
 
         function selectCategory(category) {
@@ -384,24 +514,24 @@ require '../includes/staff_header.php';
             renderProducts(document.getElementById('productSearch').value);
         }
 
-        function renderProducts(filter = '') {
-            productGrid.innerHTML = '';
-            let filtered = inventory;
-            
+        function renderGrid(gridEl, locId, filter) {
+            gridEl.innerHTML = '';
+            let filtered = inventory.filter(p => stockFor(p, locId) > 0);
+
             if (activeCategory !== 'All') filtered = filtered.filter(p => p.category === activeCategory);
 
             if (filter.trim() !== '') {
-                filtered = filtered.filter(p => 
-                    p.name.toLowerCase().includes(filter.toLowerCase()) || 
+                filtered = filtered.filter(p =>
+                    p.name.toLowerCase().includes(filter.toLowerCase()) ||
                     p.sku.toLowerCase().includes(filter.toLowerCase())
                 );
             }
 
             if (filtered.length === 0) {
-                productGrid.innerHTML = `
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--kami-text-dim);">
-                        <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px;"></i>
-                        <p style="font-size: 15px; font-weight: 700;">No Catalog Items Located</p>
+                gridEl.innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 32px 16px; color: var(--kami-text-dim);">
+                        <i class="ph ph-warning-circle" style="font-size: 28px; margin-bottom: 8px;"></i>
+                        <p style="font-size: 14px; font-weight: 700;">Nothing here</p>
                     </div>`;
                 return;
             }
@@ -409,27 +539,41 @@ require '../includes/staff_header.php';
             filtered.forEach(product => {
                 const card = document.createElement('div');
                 card.className = 'product-card animate-fade-in';
-                card.onclick = () => addToCart(product);
+                card.onclick = () => addToCart(product, locId);
                 card.innerHTML = `
                     <h4>${product.name}</h4>
                     <p>$${parseFloat(product.price).toFixed(2)}</p>
-                    <span class="stock">Units Available: ${product.stock}</span>
+                    <span class="stock">Units Available: ${stockFor(product, locId)}</span>
                     <span class="badge badge-info" style="position: absolute; right: 12px; top: 12px; font-size: 9px; padding: 3px 6px;">${product.category}</span>
                 `;
-                productGrid.appendChild(card);
+                gridEl.appendChild(card);
             });
         }
 
-        function addToCart(product, qtyToInject = 1) {
-            if (cart[product.id]) {
-                if (cart[product.id].qty + qtyToInject <= product.stock) {
-                    cart[product.id].qty += qtyToInject;
+        function renderProducts(filter = '') {
+            renderGrid(hangingGrid, HANGING_LOC_ID, filter);
+            renderGrid(fridgeGrid, FRIDGE_LOC_ID, filter);
+        }
+
+        // Cart key: the SAME product bought from two different shelves (e.g.
+        // fridge is out, grab one from Hanging too) must live as two separate
+        // lines — each with its own accurate location_id — not merge into one.
+        function cartKeyFor(productId, locId) {
+            return productId + '-' + locId;
+        }
+
+        function addToCart(product, locId, qtyToInject = 1) {
+            const ceiling = stockFor(product, locId);
+            const key = cartKeyFor(product.id, locId);
+            if (cart[key]) {
+                if (cart[key].qty + qtyToInject <= ceiling) {
+                    cart[key].qty += qtyToInject;
                 } else {
-                    cart[product.id].qty = product.stock;
+                    cart[key].qty = ceiling;
                     if(window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Limit', `Cannot exceed stock ceiling for ${product.name}.`, 'warning');
                 }
             } else {
-                cart[product.id] = { ...product, qty: (qtyToInject > product.stock ? product.stock : qtyToInject) };
+                cart[key] = { ...product, qty: (qtyToInject > ceiling ? ceiling : qtyToInject), location_id: locId };
             }
             updateCartUI();
         }
@@ -437,15 +581,22 @@ require '../includes/staff_header.php';
         function adjustQty(id, delta) {
             if (cart[id]) {
                 const item = cart[id];
+                const ceiling = stockFor(item, item.location_id);
                 item.qty += delta;
                 if (item.qty <= 0) {
                     delete cart[id];
-                } else if (item.qty > item.stock) {
-                    item.qty = item.stock;
-                    if(window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Limit', `Only ${item.stock} units available.`, 'warning');
+                } else if (item.qty > ceiling) {
+                    item.qty = ceiling;
+                    if(window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Limit', `Only ${ceiling} units available.`, 'warning');
                 }
             }
             updateCartUI();
+        }
+
+        function setPosView(view) {
+            document.body.classList.toggle('pos-view-cart', view === 'cart');
+            document.getElementById('posViewProductsBtn').classList.toggle('active', view === 'products');
+            document.getElementById('posViewCartBtn').classList.toggle('active', view === 'cart');
         }
 
         function clearCart() {
@@ -459,6 +610,7 @@ require '../includes/staff_header.php';
         function updateCartUI() {
             cartItemsContainer.innerHTML = '';
             let subtotal = 0;
+            let itemCount = 0;
 
             if (Object.keys(cart).length === 0) {
                 cartItemsContainer.innerHTML = `
@@ -473,17 +625,21 @@ require '../includes/staff_header.php';
                     const item = cart[id];
                     const itemTotal = item.price * item.qty;
                     subtotal += itemTotal;
+                    itemCount += item.qty;
 
+                    const locTag = item.location_id === HANGING_LOC_ID ? ' <span style="opacity:0.7;">&middot; Hanging</span>'
+                        : item.location_id === FRIDGE_LOC_ID ? ' <span style="opacity:0.7;">&middot; Fridge</span>'
+                        : '';
                     cartItemsContainer.innerHTML += `
                         <div class="cart-item">
                             <div class="item-info">
                                 <h5>${item.name}</h5>
-                                <span>$${parseFloat(item.price).toFixed(2)} each</span>
+                                <span>$${parseFloat(item.price).toFixed(2)} each${locTag}</span>
                             </div>
                             <div class="qty-controls">
-                                <button class="qty-btn" onclick="adjustQty(${id}, -1)"><i class="ph-bold ph-minus"></i></button>
+                                <button class="qty-btn" onclick="adjustQty('${id}', -1)"><i class="ph-bold ph-minus"></i></button>
                                 <span class="qty-val">${item.qty}</span>
-                                <button class="qty-btn" onclick="adjustQty(${id}, 1)"><i class="ph-bold ph-plus"></i></button>
+                                <button class="qty-btn" onclick="adjustQty('${id}', 1)"><i class="ph-bold ph-plus"></i></button>
                             </div>
                         </div>
                     `;
@@ -496,6 +652,10 @@ require '../includes/staff_header.php';
             document.getElementById('subtotalAmount').innerText = `$${subtotal.toFixed(2)}`;
             document.getElementById('taxAmount').innerText = `$${tax.toFixed(2)}`;
             document.getElementById('totalAmount').innerText = `$${total.toFixed(2)}`;
+
+            const cartBadge = document.getElementById('posCartBadge');
+            cartBadge.textContent = itemCount;
+            cartBadge.style.display = itemCount > 0 ? 'inline' : 'none';
         }
 
         document.getElementById('productSearch').addEventListener('input', (e) => {
@@ -503,12 +663,12 @@ require '../includes/staff_header.php';
         });
 
         // ==========================================
-        // NEW: RECALL TABLE ORDER SYSTEM
+        // RECALL TABLE ORDER SYSTEM
         // ==========================================
         function openRecallModal() {
             document.getElementById('recallModal').style.display = 'flex';
             document.getElementById('recallList').innerHTML = '<p style="color: var(--kami-text-dim); text-align: center;"><i class="ph ph-spinner ph-spin"></i> Fetching Live Orders...</p>';
-            
+
             fetch('live_orders.php?ajax=fetch')
                 .then(res => res.json())
                 .then(data => {
@@ -516,10 +676,10 @@ require '../includes/staff_header.php';
                         document.getElementById('recallList').innerHTML = '<p style="color: #ef4444; text-align: center;">Connection Error.</p>';
                         return;
                     }
-                    
+
                     pendingTableOrders = data.orders.filter(o => o.status === 'pending' || o.status === 'preparing');
                     let html = '';
-                    
+
                     if (pendingTableOrders.length === 0) {
                         html = '<p style="color: var(--kami-text-dim); text-align: center; padding: 20px;">No tables require checkout.</p>';
                     } else {
@@ -552,7 +712,7 @@ require '../includes/staff_header.php';
             if (!orderData) return;
 
             // Clear current POS cart
-            cart = {}; 
+            cart = {};
             let missingItems = [];
 
             // Parse text string to find objects in POS Inventory array
@@ -561,11 +721,13 @@ require '../includes/staff_header.php';
                 if (match) {
                     const qty = parseInt(match[1]);
                     const name = match[2];
-                    
+
                     const product = inventory.find(p => p.name.toLowerCase() === name.toLowerCase());
-                    
+
                     if (product) {
-                        addToCart(product, qty);
+                        // Default to whichever shelf actually has stock.
+                        const locId = stockFor(product, HANGING_LOC_ID) > 0 ? HANGING_LOC_ID : FRIDGE_LOC_ID;
+                        addToCart(product, locId, qty);
                     } else {
                         missingItems.push(name);
                     }
@@ -582,7 +744,7 @@ require '../includes/staff_header.php';
             });
 
             // Store ID so checkout knows to complete it
-            activeQrOrderId = orderId; 
+            activeQrOrderId = orderId;
 
             closeRecallModal();
             if(window.triggerDynamicIsland) window.triggerDynamicIsland('Order Recalled', `${orderData.table} loaded into POS.`, 'success');
@@ -599,7 +761,7 @@ require '../includes/staff_header.php';
 
             const checkoutBtn = document.getElementById('checkoutBtn');
             const originalBtnHTML = checkoutBtn.innerHTML;
-            
+
             checkoutBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Processing...';
             checkoutBtn.style.pointerEvents = 'none';
             checkoutBtn.style.opacity = '0.7';
@@ -628,7 +790,7 @@ require '../includes/staff_header.php';
 
                     const total = document.getElementById('totalAmount').innerText;
                     if(window.triggerDynamicIsland) window.triggerDynamicIsland('Charge Successful', `Filing cashier payment of ${total}.`, 'success');
-                    
+
                     result.updated_stock.forEach(update => {
                         const prodIndex = inventory.findIndex(p => p.id == update.id);
                         if (prodIndex !== -1) inventory[prodIndex].stock = update.new_stock;

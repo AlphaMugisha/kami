@@ -12,6 +12,12 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit();
 }
 
+if (empty($_SESSION['branch_id'])) {
+    echo json_encode(['success' => false, 'message' => 'No branch selected for this session. Please sign in again.']);
+    exit();
+}
+$branch_id = (int)$_SESSION['branch_id'];
+
 // Read the JSON data sent from Javascript
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
@@ -25,19 +31,31 @@ $cashier_id = $_SESSION['user_id'];
 $subtotal = 0;
 $updated_stock_data = [];
 
+// Valid location ids for a sale at this branch — only the sellable shelves
+// (Hanging / Fridge). Shop Arrivals (holding) and Big Stock (warehouse) can
+// never be sold from, enforced here server-side as well as in the POS UI.
+$valid_location_ids = $pdo->prepare("SELECT id FROM stock_locations WHERE branch_id = :bid AND is_warehouse = 0 AND is_arrival = 0");
+$valid_location_ids->execute(['bid' => $branch_id]);
+$valid_location_ids = array_map('intval', $valid_location_ids->fetchAll(PDO::FETCH_COLUMN));
+
 try {
     // Start a secure database transaction
     $pdo->beginTransaction();
 
     // 1. Calculate totals securely on the backend (Never trust frontend prices)
     foreach ($data['items'] as $item) {
-        // Fetch actual price and stock from DB to prevent hacking
-        $stmt = $pdo->prepare("SELECT price, stock FROM products WHERE id = :id LIMIT 1");
+        // Fetch actual price and stock from DB to prevent hacking. Products are
+        // one shared catalog now — visible/sellable here if marked shared, or
+        // explicitly exclusive to this cashier's own branch.
+        $stmt = $pdo->prepare("SELECT price, stock, shared, branch_id FROM products WHERE id = :id LIMIT 1");
         $stmt->execute(['id' => $item['id']]);
         $db_product = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$db_product) {
             throw new Exception("Product ID " . $item['id'] . " not found in database.");
+        }
+        if (!(int)$db_product['shared'] && (int)$db_product['branch_id'] !== $branch_id) {
+            throw new Exception("Product ID " . $item['id'] . " is not available at this branch.");
         }
         if ($db_product['stock'] < $item['qty']) {
             throw new Exception("Insufficient stock for product ID " . $item['id'] . ".");
@@ -50,9 +68,10 @@ try {
     $total = $subtotal + $tax;
 
     // 2. Insert the main receipt into `sales`
-    $stmt = $pdo->prepare("INSERT INTO sales (cashier_id, subtotal, tax, total) VALUES (:cashier, :sub, :tax, :tot)");
+    $stmt = $pdo->prepare("INSERT INTO sales (cashier_id, branch_id, subtotal, tax, total) VALUES (:cashier, :bid, :sub, :tax, :tot)");
     $stmt->execute([
         'cashier' => $cashier_id,
+        'bid' => $branch_id,
         'sub' => $subtotal,
         'tax' => $tax,
         'tot' => $total
@@ -62,12 +81,21 @@ try {
 
     // 3. Loop again to insert line items and deduct stock
     foreach ($data['items'] as $item) {
+        // The location_id must be one of this branch's sellable shelves
+        // (Hanging/Fridge). Reject outright rather than falling back to
+        // "no location" — that fallback would deduct FIFO across the whole
+        // branch, including Shop Arrivals, which must never be sellable.
+        $item_location_id = isset($item['location_id']) ? (int)$item['location_id'] : 0;
+        if (!$item_location_id || !in_array($item_location_id, $valid_location_ids, true)) {
+            throw new Exception("Product ID " . $item['id'] . " has no valid shelf location for this sale.");
+        }
+
         // FIFO: pull this quantity from the oldest batches first, capturing the
         // source batch + weighted-average cost so each sale line is profit-traceable.
-        $fifo = deduct_stock_fifo((int)$item['id'], (int)$item['qty'], $pdo);
+        $fifo = deduct_stock_fifo((int)$item['id'], (int)$item['qty'], $pdo, $branch_id, $item_location_id);
 
         // Log the line item with batch traceability.
-        $stmt = $pdo->prepare("INSERT INTO sale_items (sale_id, product_id, qty, price, batch_id, buying_price) VALUES (:sid, :pid, :qty, :price, :batch, :buy)");
+        $stmt = $pdo->prepare("INSERT INTO sale_items (sale_id, product_id, qty, price, batch_id, buying_price, location_id) VALUES (:sid, :pid, :qty, :price, :batch, :buy, :loc)");
         $stmt->execute([
             'sid'   => $sale_id,
             'pid'   => $item['id'],
@@ -75,13 +103,15 @@ try {
             'price' => $item['price'], // We can log the price it was sold at
             'batch' => $fifo['batch_id'],
             'buy'   => $fifo['avg_buying_price'],
+            'loc'   => $item_location_id,
         ]);
 
-        // Deduct inventory (running cache the POS reads on every sale)
+        // Deduct inventory (running cache the POS reads on every sale) — the
+        // product row is shared across branches now, so this isn't branch-scoped.
         $stmt = $pdo->prepare("UPDATE products SET stock = stock - :qty WHERE id = :id");
         $stmt->execute([
             'qty' => $item['qty'],
-            'id' => $item['id']
+            'id' => $item['id'],
         ]);
 
         // Fetch the new stock to send back to the UI

@@ -11,6 +11,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'cashier') {
 require_once '../config/db.php';
 
 $cashier_id = $_SESSION['user_id'];
+$branch_id  = (int)($_SESSION['branch_id'] ?? 1);
 $success_msg = '';
 $error_msg = '';
 
@@ -18,8 +19,8 @@ $error_msg = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['clock_in'])) {
     $starting_cash = filter_input(INPUT_POST, 'starting_cash', FILTER_VALIDATE_FLOAT);
     if ($starting_cash !== false && $starting_cash >= 0) {
-        $stmt = $pdo->prepare("INSERT INTO shifts (cashier_id, starting_cash) VALUES (:id, :cash)");
-        $stmt->execute(['id' => $cashier_id, 'cash' => $starting_cash]);
+        $stmt = $pdo->prepare("INSERT INTO shifts (cashier_id, branch_id, starting_cash) VALUES (:id, :bid, :cash)");
+        $stmt->execute(['id' => $cashier_id, 'bid' => $branch_id, 'cash' => $starting_cash]);
         $success_msg = "Shift started successfully. Register unlocked.";
     } else {
         $error_msg = "Please enter a valid starting cash amount.";
@@ -38,9 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['clock_out'])) {
     }
 }
 
-// CHECK CURRENT SHIFT STATUS
-$stmt = $pdo->prepare("SELECT * FROM shifts WHERE cashier_id = :id AND status = 'active' ORDER BY clock_in DESC LIMIT 1");
-$stmt->execute(['id' => $cashier_id]);
+// CHECK CURRENT SHIFT STATUS (scoped to this branch — a cashier working both
+// locations on different days shouldn't have one branch's open shift block the other)
+$stmt = $pdo->prepare("SELECT * FROM shifts WHERE cashier_id = :id AND branch_id = :bid AND status = 'active' ORDER BY clock_in DESC LIMIT 1");
+$stmt->execute(['id' => $cashier_id, 'bid' => $branch_id]);
 $active_shift = $stmt->fetch(PDO::FETCH_ASSOC);
 
 ?>
@@ -50,13 +52,17 @@ $page_title = 'Time Clock';
 require '../includes/staff_header.php';
 ?>
     <style>
-        .clock-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 70vh; }
-        .digital-clock { font-family: 'Outfit', monospace; font-size: 84px; font-weight: 900; color: var(--kami-text); letter-spacing: -2px; margin-bottom: 8px; text-shadow: 0 0 40px rgba(255,255,255,0.1); }
-        .date-display { color: var(--kami-text-muted); font-size: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 48px; }
-        
+        .clock-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: clamp(320px, 70vh, 560px); padding: 24px 16px; }
+        .digital-clock { font-family: 'Outfit', monospace; font-size: clamp(40px, 12vw, 84px); font-weight: 900; color: var(--kami-text); letter-spacing: -2px; margin-bottom: 8px; text-shadow: 0 0 40px rgba(255,255,255,0.1); }
+        .date-display { color: var(--kami-text-muted); font-size: clamp(13px, 3vw, 18px); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 48px; text-align: center; }
+
         .action-card { background: var(--kami-surface-2); border: 1px solid var(--kami-border); border-radius: 24px; padding: 40px; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.5); text-align: center; }
         .input-massive { width: 100%; background: rgba(0,0,0,0.3); border: 2px solid var(--kami-border); color: var(--kami-accent); font-size: 32px; font-weight: 800; text-align: center; padding: 20px; border-radius: 16px; margin-bottom: 24px; outline: none; }
         .input-massive:focus { border-color: var(--kami-accent); box-shadow: 0 0 20px rgba(217, 119, 6, 0.2); }
+
+        @media (max-width: 480px) {
+            .action-card { padding: 24px; }
+        }
     </style>
 
         <div class="clock-container animate-fade-in">

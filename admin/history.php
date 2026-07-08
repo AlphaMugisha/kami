@@ -10,14 +10,23 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'admin') {
 
 require_once '../config/db.php';
 
-// ADVANCED SQL: Fetch ALL shifts from ALL cashiers
-$stmt = $pdo->query("
-    SELECT s.*, u.full_name as cashier_name,
-    (SELECT SUM(total) FROM sales WHERE cashier_id = s.cashier_id AND created_at >= s.clock_in AND created_at <= IFNULL(s.clock_out, NOW())) as shift_sales
-    FROM shifts s 
+// Branch filter — all branches combined by default.
+$branches = $pdo->query("SELECT id, name, is_main FROM branches ORDER BY is_main DESC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$filter_branch_id = filter_input(INPUT_GET, 'branch', FILTER_VALIDATE_INT) ?: 0; // 0 = all branches
+
+// ADVANCED SQL: Fetch ALL shifts from ALL cashiers (optionally scoped to one branch)
+$stmt = $pdo->prepare("
+    SELECT s.*, u.full_name as cashier_name, b.name as branch_name,
+    (SELECT SUM(total) FROM sales
+       WHERE cashier_id = s.cashier_id AND branch_id = s.branch_id
+         AND created_at >= s.clock_in AND created_at <= IFNULL(s.clock_out, NOW())) as shift_sales
+    FROM shifts s
     JOIN users u ON s.cashier_id = u.id
+    LEFT JOIN branches b ON b.id = s.branch_id
+    WHERE (:bid1 = 0 OR s.branch_id = :bid2)
     ORDER BY s.clock_in DESC
 ");
+$stmt->execute(['bid1' => $filter_branch_id, 'bid2' => $filter_branch_id]);
 $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <?php
@@ -35,10 +44,6 @@ require '../includes/staff_header.php';
         .data-table { width: 100%; border-collapse: collapse; min-width: 650px; }
         .data-table th { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--kami-border); color: var(--kami-text-muted); font-size: 13px; font-weight: 600; }
         .data-table td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.02); }
-
-        /* --- MOBILE MENU ELEMENTS --- */
-        .mobile-menu-btn { display: none; }
-        .sidebar-overlay { display: none; }
 
         /* --- MOBILE UX BREAKPOINT --- */
         @media (max-width: 768px) {
@@ -61,15 +66,8 @@ require '../includes/staff_header.php';
             .card, .glass { border: none !important; background: transparent; padding: 0;}
             .card-header { padding: 0 0 16px 0 !important; }
 
-            /* Sidebar Controls */
-            .sidebar, aside { position: fixed !important; top: 0; left: -300px !important; width: 280px !important; height: 100vh !important; z-index: 1000 !important; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; box-shadow: 4px 0 24px rgba(0,0,0,0.5); }
-            body.sidebar-open .sidebar, body.sidebar-open aside { left: 0 !important; }
-            .sidebar-overlay { display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(3px); z-index: 999; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-            body.sidebar-open .sidebar-overlay { opacity: 1; pointer-events: auto; }
-
             /* Header Adjustments */
             .page-header-container { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; width: 100%; }
-            .mobile-menu-btn { display: flex; align-items: center; justify-content: center; background: var(--kami-surface-3); border-radius: var(--kami-radius-sm); width: 44px; height: 44px; color: var(--kami-text); cursor: pointer; flex-shrink: 0; border: none; }
             .page-header { margin-bottom: 0 !important; }
             .page-header p { display: none; }
 
@@ -132,18 +130,31 @@ require '../includes/staff_header.php';
         <h1 class="kami-page-title">Global Shift History</h1>
         <p class="kami-page-sub">Master ledger of all employee shifts across the entire system.</p>
 
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;" class="animate-fade-in">
+            <label class="form-label" for="histBranchFilter" style="margin:0;">Branch</label>
+            <select id="histBranchFilter" class="form-select" style="width:auto; min-width:200px;" onchange="location.href='history.php'+(this.value>0?'?branch='+this.value:'')">
+                <option value="0" <?= $filter_branch_id === 0 ? 'selected' : '' ?>>All Branches</option>
+                <?php foreach ($branches as $b): ?>
+                    <option value="<?= (int)$b['id'] ?>" <?= $filter_branch_id === (int)$b['id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($b['name']) ?><?= $b['is_main'] ? ' (Main)' : '' ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
         <div class="card glass animate-fade-in">
             <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
                 <h3><i class="ph-bold ph-books"></i> Master Audit Trail</h3>
                 <div class="badge badge-info" style="margin-top: 8px; display: inline-block;"><?= count($shifts) ?> Total Records</div>
             </div>
-            
+
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>Shift Date</th>
                             <th>Cashier</th>
+                            <th>Branch</th>
                             <th>Status</th>
                             <th>Starting Float</th>
                             <th>Shift Sales</th>
@@ -153,7 +164,7 @@ require '../includes/staff_header.php';
                     <tbody>
                         <?php if (empty($shifts)): ?>
                             <tr>
-                                <td colspan="6" data-label="Status" style="text-align:center; padding:32px; color: var(--kami-text-dim);">
+                                <td colspan="7" data-label="Status" style="text-align:center; padding:32px; color: var(--kami-text-dim);">
                                     <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px; display: block;"></i>
                                     No system shifts recorded yet.
                                 </td>
@@ -174,6 +185,7 @@ require '../includes/staff_header.php';
                                     <td data-label="Cashier" style="font-weight: 700; font-size: 15px;">
                                         <i class="ph-fill ph-user" style="color: var(--kami-text-dim); margin-right: 4px;"></i> <?= htmlspecialchars($s['cashier_name']) ?>
                                     </td>
+                                    <td data-label="Branch" class="row-secondary"><?= htmlspecialchars($s['branch_name'] ?? '—') ?></td>
                                     <td data-label="Status">
                                         <?php if ($s['status'] === 'active'): ?>
                                             <span class="badge badge-success">On Duty</span>
@@ -183,10 +195,10 @@ require '../includes/staff_header.php';
                                             <span class="badge badge-danger">Closed (Unsubmitted)</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td data-label="Starting Float" style="color: var(--kami-text-muted); font-size: 15px;">
+                                    <td data-label="Starting Float" class="row-secondary" style="color: var(--kami-text-muted); font-size: 15px;">
                                         $<?= number_format((float)$s['starting_cash'], 2) ?>
                                     </td>
-                                    <td data-label="Shift Sales" style="color: var(--kami-accent); font-weight: 700; font-size: 15px;">
+                                    <td data-label="Shift Sales" class="row-secondary" style="color: var(--kami-accent); font-weight: 700; font-size: 15px;">
                                         +$<?= number_format($sales, 2) ?>
                                     </td>
                                     <td data-label="Over/Short">
@@ -199,6 +211,9 @@ require '../includes/staff_header.php';
                                                 <?= $discrepancy > 0 ? '+' : '' ?>$<?= number_format($discrepancy, 2) ?>
                                             </span>
                                         <?php endif; ?>
+                                    </td>
+                                    <td class="row-expand-cell">
+                                        <button type="button" class="row-expand-btn"><i class="ph-bold ph-caret-down"></i> Details</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

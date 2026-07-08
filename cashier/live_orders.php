@@ -11,6 +11,15 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 require_once '../config/db.php';
 
+// Live/table ordering only exists at Main Branch (a lounge feature); Second
+// Branch is a plain walk-in shop and never gets this page. Admins (no
+// $_SESSION['branch_id']) always pass through.
+$mainBranchId = (int)($pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1);
+if (isset($_SESSION['branch_id']) && (int)$_SESSION['branch_id'] !== $mainBranchId) {
+    header("Location: index.php");
+    exit();
+}
+
 // ============================================================================
 // 1. AJAX API HANDLER
 // ============================================================================
@@ -65,14 +74,15 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'fetch') {
         $orders = [];
         try {
-            $query = "SELECT o.id, o.table_number, o.total_amount, o.payment_method, o.status, o.created_at, 
-                             i.product_name, i.quantity 
-                      FROM qr_orders o 
-                      LEFT JOIN qr_order_items i ON o.id = i.order_id 
-                      WHERE o.status IN ('pending', 'preparing', 'served') 
+            $query = "SELECT o.id, o.table_number, o.total_amount, o.payment_method, o.status, o.created_at,
+                             i.product_name, i.quantity
+                      FROM qr_orders o
+                      LEFT JOIN qr_order_items i ON o.id = i.order_id
+                      WHERE o.status IN ('pending', 'preparing', 'served') AND o.branch_id = :bid
                       ORDER BY o.created_at ASC";
-                      
-            $stmt = $pdo->query($query);
+
+            $stmt = $pdo->prepare($query);
+            $stmt->execute(['bid' => $mainBranchId]);
             
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $oid = $row['id'];

@@ -14,6 +14,46 @@ require_once '../includes/stock_functions.php';
 $success_msg = '';
 $error_msg = '';
 
+/* ---- branches (for the Availability picker) + all locations (for opening-stock target) ---- */
+$branches = $pdo->query("SELECT id, name, is_main FROM branches ORDER BY is_main DESC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$main_branch_id = (int)($branches[0]['id'] ?? 1);
+foreach ($branches as $b) { if ($b['is_main']) { $main_branch_id = (int)$b['id']; break; } }
+
+$all_locations = $pdo->query("
+    SELECT l.id, l.name, l.is_warehouse, l.branch_id, b.name AS branch_name
+      FROM stock_locations l
+      JOIN branches b ON b.id = l.branch_id
+     ORDER BY b.is_main DESC, l.id ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$warehouse_location_id = null;
+foreach ($all_locations as $l) { if ($l['is_warehouse']) { $warehouse_location_id = (int)$l['id']; break; } }
+if ($warehouse_location_id === null && !empty($all_locations)) {
+    $warehouse_location_id = (int)$all_locations[0]['id'];
+}
+
+/* helper: turn the "availability" form field into [shared, branch_id] */
+function parse_availability(string $availability, int $default_branch_id): array
+{
+    if ($availability === 'shared') {
+        return [1, $default_branch_id];
+    }
+    $bid = (int)str_replace('branch_', '', $availability);
+    return [0, $bid ?: $default_branch_id];
+}
+
+/* helper: human label for a product's availability */
+function availability_label(array $product, array $branches): string
+{
+    if ((int)$product['shared']) return 'Shared — both branches';
+    foreach ($branches as $b) {
+        if ((int)$b['id'] === (int)$product['branch_id']) {
+            return htmlspecialchars($b['name']) . ' only';
+        }
+    }
+    return 'Exclusive';
+}
+
 // 2. PROCESS NEW PRODUCT FORM (CREATE)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     $sku = filter_input(INPUT_POST, 'sku', FILTER_SANITIZE_STRING);
@@ -22,30 +62,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     $price = filter_input(INPUT_POST, 'price', FILTER_VALIDATE_FLOAT);   // selling price
     $buying = filter_input(INPUT_POST, 'buying_price', FILTER_VALIDATE_FLOAT);
     $stock = filter_input(INPUT_POST, 'stock', FILTER_VALIDATE_INT);
+    $availability = (string)($_POST['availability'] ?? 'shared');
+    $opening_location_id = filter_input(INPUT_POST, 'opening_location_id', FILTER_VALIDATE_INT) ?: $warehouse_location_id;
     if ($buying === false || $buying === null) $buying = 0.0;
+
+    [$shared, $product_branch_id] = parse_availability($availability, $main_branch_id);
 
     if ($sku && $name && $price !== false && $stock !== false) {
         try {
             $pdo->beginTransaction();
             // Create the product with its cached batch prices.
             $stmt = $pdo->prepare(
-                "INSERT INTO products (sku, name, category, price, buying_price, selling_price, stock)
-                 VALUES (:sku, :name, :category, :price, :buying, :price, :stock)"
+                "INSERT INTO products (branch_id, shared, sku, name, category, price, buying_price, selling_price, stock)
+                 VALUES (:bid, :shared, :sku, :name, :category, :price, :buying, :price2, :stock)"
             );
             $stmt->execute([
+                'bid' => $product_branch_id,
+                'shared' => $shared,
                 'sku' => $sku,
                 'name' => $name,
                 'category' => $category,
                 'price' => $price,
                 'buying' => $buying,
+                'price2' => $price,
                 'stock' => $stock
             ]);
             $new_pid = (int)$pdo->lastInsertId();
 
             // Seed an opening batch so FIFO + profit tracking work from day one.
-            if ($stock > 0) {
-                log_restock($pdo, $new_pid, $stock, (float)$buying, (float)$price, null,
-                    'Opening stock (new product)', (int)$_SESSION['user_id']);
+            // Lands wherever the admin chose (defaults to the shared warehouse).
+            if ($stock > 0 && $opening_location_id) {
+                $loc_branch_id = get_location_branch($pdo, $opening_location_id);
+                log_restock($pdo, $loc_branch_id, $new_pid, $stock, (float)$buying, (float)$price, null,
+                    'Opening stock (new product)', (int)$_SESSION['user_id'], $opening_location_id);
                 // log_restock also adds to stock; undo the double-count from the INSERT above.
                 $fix = $pdo->prepare("UPDATE products SET stock = :stock WHERE id = :id");
                 $fix->execute(['stock' => $stock, 'id' => $new_pid]);
@@ -88,13 +137,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_product'])) {
     $edit_id = filter_input(INPUT_POST, 'edit_id', FILTER_VALIDATE_INT);
     $edit_price = filter_input(INPUT_POST, 'edit_price', FILTER_VALIDATE_FLOAT);
     $edit_stock = filter_input(INPUT_POST, 'edit_stock', FILTER_VALIDATE_INT);
+    $edit_availability = (string)($_POST['edit_availability'] ?? 'shared');
 
     if ($edit_id && $edit_price !== false && $edit_stock !== false) {
-        $stmt = $pdo->prepare("UPDATE products SET price = :price, stock = :stock WHERE id = :id");
+        [$shared, $product_branch_id] = parse_availability($edit_availability, $main_branch_id);
+        $stmt = $pdo->prepare("UPDATE products SET price = :price, stock = :stock, shared = :shared, branch_id = :bid WHERE id = :id");
         $stmt->execute([
             'price' => $edit_price,
             'stock' => $edit_stock,
-            'id' => $edit_id
+            'shared' => $shared,
+            'bid' => $product_branch_id,
+            'id' => $edit_id,
         ]);
         $success_msg = "Product metrics synchronized successfully.";
     } else {
@@ -102,9 +155,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_product'])) {
     }
 }
 
-// 5. FETCH LIVE INVENTORY (READ)
-$stmt = $pdo->query("SELECT * FROM products ORDER BY created_at DESC");
-$products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// 5. FETCH LIVE INVENTORY (READ) — the whole shared catalog
+$products = $pdo->query("SELECT * FROM products ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
 
 $userName = $_SESSION['full_name'] ?? 'Admin';
 $userRole = ucfirst($_SESSION['role'] ?? 'Admin');
@@ -116,9 +168,8 @@ require '../includes/staff_header.php';
 ?>
     <style>
         /* --- DESKTOP LAYOUT --- */
-        .inventory-grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
         .live-stock-list { min-height: 400px; }
-        
+
         /* Grid for form rows */
         .form-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -143,48 +194,31 @@ require '../includes/staff_header.php';
         .data-table th { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--kami-border); color: var(--kami-text-muted); font-size: 13px; font-weight: 600; }
         .data-table td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.02); }
 
-        /* --- MOBILE MENU ELEMENTS --- */
-        .mobile-menu-btn { display: none; }
-        .sidebar-overlay { display: none; }
-
-        /* --- TABLET BREAKPOINT --- */
-        @media (max-width: 1100px) { 
-            .inventory-grid { grid-template-columns: 1fr; } 
-        }
-
         /* --- MOBILE UX BREAKPOINT (THE MAGIC HAPPENS HERE) --- */
         @media (max-width: 768px) {
-            
+
             /* TRUE EDGE-TO-EDGE MOBILE FULLSCREEN */
             body, html { margin: 0 !important; padding: 0 !important; }
             .app-layout { padding: 0 !important; margin: 0 !important; }
-            
+
             /* Remove the card-like floating effect from main content */
-            .main-content { 
-                margin: 0 !important; 
-                padding: 16px !important; 
-                border: none !important; 
-                border-radius: 0 !important; 
-                box-shadow: none !important; 
-                min-height: 100vh; 
+            .main-content {
+                margin: 0 !important;
+                padding: 16px !important;
+                border: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                min-height: 100vh;
             }
-            
+
             .card, .glass { border: none !important; background: transparent; padding: 0;}
             .card-header { padding: 0 0 16px 0 !important; }
-            
+
             /* Form Grid fixes for mobile */
             .form-row-grid { grid-template-columns: 1fr; } /* Stack price and stock */
-            .inventory-grid { gap: 32px; }
-
-            /* Sidebar Controls */
-            .sidebar, aside { position: fixed !important; top: 0; left: -300px !important; width: 280px !important; height: 100vh !important; z-index: 1000 !important; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; box-shadow: 4px 0 24px rgba(0,0,0,0.5); }
-            body.sidebar-open .sidebar, body.sidebar-open aside { left: 0 !important; }
-            .sidebar-overlay { display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(3px); z-index: 999; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-            body.sidebar-open .sidebar-overlay { opacity: 1; pointer-events: auto; }
 
             /* Header Adjustments */
             .page-header-container { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-            .mobile-menu-btn { display: flex; align-items: center; justify-content: center; background: var(--kami-surface-3); border-radius: var(--kami-radius-sm); width: 44px; height: 44px; color: var(--kami-text); cursor: pointer; flex-shrink: 0; border: none; }
             .page-header { margin-bottom: 0 !important; }
             .page-header p { display: none; }
 
@@ -195,13 +229,13 @@ require '../includes/staff_header.php';
             /* =========================================
                 TRUE MOBILE TABLE REWRITE (CARDS)
                 ========================================= */
-            
+
             /* Hide the Desktop Header completely */
             .data-table thead { display: none; }
-            
+
             /* Convert table elements to block to break the grid */
             .data-table, .data-table tbody, .data-table tr, .data-table td { display: block; width: 100%; }
-            
+
             /* Turn every Row into a standalone Card */
             .data-table tr {
                 margin-bottom: 16px;
@@ -234,69 +268,38 @@ require '../includes/staff_header.php';
 
             /* Push action buttons to the right */
             .action-btns { width: auto; }
-            
+
             /* Modal mobile fixes */
             .modal-content { padding: 24px; width: 90%; }
         }
+
+        .avail-note { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+        .avail-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: var(--kami-radius-full); }
+        .avail-badge.shared { background: var(--kami-info-bg); color: var(--kami-info); border: 1px solid var(--kami-info-border); }
+        .avail-badge.exclusive { background: var(--kami-warning-bg); color: var(--kami-warning); border: 1px solid var(--kami-warning-border); }
     </style>
 
         <h1 class="kami-page-title">Inventory Directory</h1>
-        <p class="kami-page-sub">Add and track Ozone Liquor catalog items in the local database.</p>
+        <p class="kami-page-sub">One shared catalog for Ozone Liquor — mark a product Shared to sell it at either branch, or exclusive to just one.</p>
 
-        <div class="inventory-grid animate-fade-in">
-            <div class="card glass">
-                <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
-                    <h3><i class="ph-bold ph-plus-circle"></i> Provision Product</h3>
-                </div>
-                
-                <form action="inventory.php" method="POST">
-                    <div class="form-group">
-                        <label class="form-label">SKU (Barcode Identifier)</label>
-                        <input type="text" name="sku" class="form-input" required placeholder="e.g. HEN-VSOP-750" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Product Name</label>
-                        <input type="text" name="name" class="form-input" required placeholder="Hennessy VSOP 750ml">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Category Group</label>
-                        <select name="category" class="form-select" required>
-                            <option value="Cognac">Cognac</option>
-                            <option value="Whiskey">Whiskey</option>
-                            <option value="Vodka">Vodka</option>
-                            <option value="Wine">Wine</option>
-                            <option value="Beer">Beer</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-row-grid">
-                        <div class="form-group">
-                            <label class="form-label">Buying Price ($)</label>
-                            <input type="number" step="0.01" min="0" name="buying_price" class="form-input" placeholder="0.00">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Selling Price ($)</label>
-                            <input type="number" step="0.01" name="price" class="form-input" required placeholder="0.00">
-                        </div>
-                    </div>
+        <div class="avail-note animate-fade-in">
+            <span class="badge badge-info"><?= count($products) ?> Products in catalog</span>
+            <a href="locations.php" class="btn" style="background:var(--kami-surface-3); color:var(--kami-text);">
+                <i class="ph-bold ph-grid-four"></i> See stock by location →
+            </a>
+        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Initial Stock</label>
-                        <input type="number" name="stock" class="form-input" required placeholder="0">
+        <div class="card glass live-stock-list animate-fade-in">
+                <div class="card-header" style="border:none; padding:0; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <h3><i class="ph-bold ph-database"></i> Live Database</h3>
+                        <div class="badge badge-info" style="margin-top: 8px; display: inline-block;"><?= count($products) ?> Premium Listings</div>
                     </div>
-                    
-                    <button type="submit" name="add_product" class="btn btn-primary btn-block" style="margin-top: 8px;">
-                        <i class="ph-bold ph-floppy-disk"></i> <span>Save Product</span>
+                    <button type="button" class="btn btn-primary" onclick="openAddProductModal()">
+                        <i class="ph-bold ph-plus"></i> Add Product
                     </button>
-                </form>
-            </div>
-
-            <div class="card glass live-stock-list">
-                <div class="card-header" style="border:none; padding:0; margin-bottom: 20px;">
-                    <h3><i class="ph-bold ph-database"></i> Live Database</h3>
-                    <div class="badge badge-info" style="margin-top: 8px; display: inline-block;"><?= count($products) ?> Premium Listings</div>
                 </div>
-                
+
                 <div class="table-responsive">
                     <table class="data-table">
                         <thead>
@@ -304,6 +307,7 @@ require '../includes/staff_header.php';
                                 <th>SKU (Serial Key)</th>
                                 <th>Product Designation</th>
                                 <th>Category</th>
+                                <th>Availability</th>
                                 <th>Buying</th>
                                 <th>Selling</th>
                                 <th>Margin</th>
@@ -314,7 +318,7 @@ require '../includes/staff_header.php';
                         <tbody>
                             <?php if (empty($products)): ?>
                                 <tr>
-                                    <td colspan="8" data-label="Status" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
+                                    <td colspan="9" data-label="Status" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
                                         <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px;"></i>
                                         <p>No products logged in database server.</p>
                                     </td>
@@ -325,31 +329,14 @@ require '../includes/staff_header.php';
                                     $p_sell = (float)($product['selling_price'] ?? 0);
                                     if ($p_sell <= 0) $p_sell = (float)$product['price'];
                                     $p_margin = margin_percent($p_buy, $p_sell);
+                                    $availability_value = $product['shared'] ? 'shared' : ('branch_' . (int)$product['branch_id']);
                                 ?>
                                     <tr class="hover-scale">
-                                        <td data-label="SKU" style="color: var(--kami-text-muted); font-family: monospace; font-size: 13px; font-weight: 700;">
-                                            <?= htmlspecialchars($product['sku']) ?>
-                                        </td>
                                         <td data-label="Name" style="font-weight: 700; font-size: 15px; color: var(--kami-text);">
                                             <?= htmlspecialchars($product['name']) ?>
                                         </td>
-                                        <td data-label="Category">
-                                            <span class="badge badge-info" style="font-size: 10px;"><?= htmlspecialchars($product['category']) ?></span>
-                                        </td>
-                                        <td data-label="Buying" style="color: var(--kami-text-muted);">
-                                            $<?= number_format($p_buy, 2) ?>
-                                        </td>
                                         <td data-label="Selling" style="font-weight: 700; color: var(--kami-accent);">
                                             $<?= number_format($p_sell, 2) ?>
-                                        </td>
-                                        <td data-label="Margin">
-                                            <?php if ($p_margin === null): ?>
-                                                <span style="color: var(--kami-text-dim); font-weight:700;">n/a</span>
-                                            <?php else: ?>
-                                                <span style="font-weight:800; color: <?= $p_margin >= 0 ? '#10b981' : '#ef4444' ?>;">
-                                                    <?= ($p_margin >= 0 ? '+' : '') . number_format($p_margin, 1) ?>%
-                                                </span>
-                                            <?php endif; ?>
                                         </td>
                                         <td data-label="Status">
                                             <?php if ($product['stock'] <= 5): ?>
@@ -358,12 +345,33 @@ require '../includes/staff_header.php';
                                                 <span class="badge badge-success"><?= htmlspecialchars((string)$product['stock']) ?> Stocked</span>
                                             <?php endif; ?>
                                         </td>
+                                        <td data-label="SKU" class="row-secondary" style="color: var(--kami-text-muted); font-family: monospace; font-size: 13px; font-weight: 700;">
+                                            <?= htmlspecialchars($product['sku']) ?>
+                                        </td>
+                                        <td data-label="Category" class="row-secondary">
+                                            <span class="badge badge-info" style="font-size: 10px;"><?= htmlspecialchars($product['category']) ?></span>
+                                        </td>
+                                        <td data-label="Availability" class="row-secondary">
+                                            <span class="avail-badge <?= $product['shared'] ? 'shared' : 'exclusive' ?>"><?= availability_label($product, $branches) ?></span>
+                                        </td>
+                                        <td data-label="Buying" class="row-secondary" style="color: var(--kami-text-muted);">
+                                            $<?= number_format($p_buy, 2) ?>
+                                        </td>
+                                        <td data-label="Margin" class="row-secondary">
+                                            <?php if ($p_margin === null): ?>
+                                                <span style="color: var(--kami-text-dim); font-weight:700;">n/a</span>
+                                            <?php else: ?>
+                                                <span style="font-weight:800; color: <?= $p_margin >= 0 ? '#10b981' : '#ef4444' ?>;">
+                                                    <?= ($p_margin >= 0 ? '+' : '') . number_format($p_margin, 1) ?>%
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td data-label="Actions">
                                             <div class="action-btns">
                                                 <button type="button" class="btn-icon" title="Restock (Kurungura)" onclick='openRestockModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $p_sell ?>)'>
                                                     <i class="ph ph-shopping-cart-simple"></i>
                                                 </button>
-                                                <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>)'>
+                                                <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>, <?= htmlspecialchars(json_encode($availability_value), ENT_QUOTES, "UTF-8") ?>)'>
                                                     <i class="ph ph-pencil-simple"></i>
                                                 </button>
                                                 <form action="inventory.php" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this product?');">
@@ -374,14 +382,85 @@ require '../includes/staff_header.php';
                                                 </form>
                                             </div>
                                         </td>
+                                        <td class="row-expand-cell">
+                                            <button type="button" class="row-expand-btn"><i class="ph-bold ph-caret-down"></i> Details</button>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
-            </div>
         </div>
+
+    <div class="modal-overlay-ui" id="addProductModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="ph-bold ph-plus-circle"></i> Provision Product</h3>
+                <button class="modal-close" onclick="closeAddProductModal()"><i class="ph ph-x"></i></button>
+            </div>
+
+            <form action="inventory.php" method="POST">
+                <div class="form-group">
+                    <label class="form-label">SKU (Barcode Identifier)</label>
+                    <input type="text" name="sku" class="form-input" required placeholder="e.g. HEN-VSOP-750" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Product Name</label>
+                    <input type="text" name="name" class="form-input" required placeholder="Hennessy VSOP 750ml">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category Group</label>
+                    <select name="category" class="form-select" required>
+                        <option value="Cognac">Cognac</option>
+                        <option value="Whiskey">Whiskey</option>
+                        <option value="Vodka">Vodka</option>
+                        <option value="Wine">Wine</option>
+                        <option value="Beer">Beer</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Availability</label>
+                    <select name="availability" class="form-select" required>
+                        <option value="shared">Shared — sellable at either branch</option>
+                        <?php foreach ($branches as $b): ?>
+                            <option value="branch_<?= (int)$b['id'] ?>"><?= htmlspecialchars($b['name']) ?> only</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="form-row-grid">
+                    <div class="form-group">
+                        <label class="form-label">Buying Price ($)</label>
+                        <input type="number" step="0.01" min="0" name="buying_price" class="form-input" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Selling Price ($)</label>
+                        <input type="number" step="0.01" name="price" class="form-input" required placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Initial Stock</label>
+                    <input type="number" name="stock" class="form-input" required placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Where does this stock land?</label>
+                    <select name="opening_location_id" class="form-select">
+                        <?php foreach ($all_locations as $l): ?>
+                            <option value="<?= (int)$l['id'] ?>" <?= (int)$l['id'] === $warehouse_location_id ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($l['name']) ?> (<?= htmlspecialchars($l['branch_name']) ?><?= $l['is_warehouse'] ? ' — warehouse' : '' ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <button type="submit" name="add_product" class="btn btn-primary btn-block" style="margin-top: 8px;">
+                    <i class="ph-bold ph-floppy-disk"></i> <span>Save Product</span>
+                </button>
+            </form>
+        </div>
+    </div>
 
     <div class="modal-overlay-ui" id="editModal">
         <div class="modal-content">
@@ -390,19 +469,28 @@ require '../includes/staff_header.php';
                 <button class="modal-close" onclick="closeEditModal()"><i class="ph ph-x"></i></button>
             </div>
             <p id="editProductName" style="color: var(--kami-text-muted); margin-bottom: 20px; font-weight: 600;"></p>
-            
+
             <form action="inventory.php" method="POST">
                 <input type="hidden" name="edit_id" id="editIdInput">
-                
+
                 <div class="form-group">
                     <label class="form-label">Update Price ($)</label>
                     <input type="number" step="0.01" name="edit_price" id="editPriceInput" class="form-input" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Adjust Stock</label>
+                    <label class="form-label">Adjust Stock (company-wide total)</label>
                     <input type="number" name="edit_stock" id="editStockInput" class="form-input" required>
                 </div>
-                
+                <div class="form-group">
+                    <label class="form-label">Availability</label>
+                    <select name="edit_availability" id="editAvailabilityInput" class="form-select" required>
+                        <option value="shared">Shared — sellable at either branch</option>
+                        <?php foreach ($branches as $b): ?>
+                            <option value="branch_<?= (int)$b['id'] ?>"><?= htmlspecialchars($b['name']) ?> only</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
                 <button type="submit" name="update_product" class="btn btn-primary btn-block" style="margin-top: 16px;">
                     Confirm Adjustment
                 </button>
@@ -421,6 +509,16 @@ require '../includes/staff_header.php';
             <form id="quickRestockForm" onsubmit="return submitQuickRestock(event)">
                 <input type="hidden" name="ajax" value="1">
                 <input type="hidden" name="product_id" id="rsModalPid">
+                <div class="form-group">
+                    <label class="form-label">Location</label>
+                    <select name="location_id" id="rsModalLocation" class="form-select" required>
+                        <?php foreach ($all_locations as $l): ?>
+                            <option value="<?= (int)$l['id'] ?>" <?= (int)$l['id'] === $warehouse_location_id ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($l['name']) ?> (<?= htmlspecialchars($l['branch_name']) ?><?= $l['is_warehouse'] ? ' — warehouse' : '' ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="form-row-grid">
                     <div class="form-group">
                         <label class="form-label">Quantity Bought</label>
@@ -447,9 +545,15 @@ require '../includes/staff_header.php';
     </div>
 
     <script>
-        function toggleSidebar() {
-            document.body.classList.toggle('sidebar-open');
+        function openAddProductModal() {
+            document.getElementById('addProductModal').classList.add('active');
         }
+        function closeAddProductModal() {
+            document.getElementById('addProductModal').classList.remove('active');
+        }
+        document.getElementById('addProductModal').addEventListener('click', function (e) {
+            if (e.target === this) closeAddProductModal();
+        });
 
         /* ---- Quick restock modal (AJAX -> process_restock.php) ---- */
         function openRestockModal(id, name, sellingPrice) {
@@ -489,11 +593,12 @@ require '../includes/staff_header.php';
             if (e.target === this) closeRestockModal();
         });
 
-        function openEditModal(id, name, price, stock) {
+        function openEditModal(id, name, price, stock, availability) {
             document.getElementById('editIdInput').value = id;
             document.getElementById('editProductName').innerText = name;
             document.getElementById('editPriceInput').value = price;
             document.getElementById('editStockInput').value = stock;
+            document.getElementById('editAvailabilityInput').value = availability;
             document.getElementById('editModal').classList.add('active');
         }
 

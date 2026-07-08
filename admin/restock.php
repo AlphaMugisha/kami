@@ -18,19 +18,49 @@ if (!isset($_SESSION['logged_in']) || ($_SESSION['role'] ?? '') !== 'admin') {
 require_once '../config/db.php';
 require_once '../includes/stock_functions.php';
 
-/* ---- products for the dropdown ---- */
+/* ---- location context: every restock lands in a real, named location
+        (defaults to the shared warehouse). Products are one shared catalog,
+        so there's no branch switcher here anymore — just pick where the
+        stock physically lands. ---- */
+$all_locations = $pdo->query("
+    SELECT l.id, l.name, l.is_warehouse, l.branch_id, b.name AS branch_name
+      FROM stock_locations l
+      JOIN branches b ON b.id = l.branch_id
+     ORDER BY b.is_main DESC, l.id ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$warehouse_location_id = null;
+foreach ($all_locations as $l) { if ($l['is_warehouse']) { $warehouse_location_id = (int)$l['id']; break; } }
+if ($warehouse_location_id === null && !empty($all_locations)) {
+    $warehouse_location_id = (int)$all_locations[0]['id'];
+}
+
+$requested_location = filter_input(INPUT_GET, 'location', FILTER_VALIDATE_INT);
+if ($requested_location) {
+    $_SESSION['admin_restock_location_id'] = $requested_location;
+}
+$current_location_id = (int)($_SESSION['admin_restock_location_id'] ?? $warehouse_location_id ?? 0);
+if (!in_array($current_location_id, array_column($all_locations, 'id'), true)) {
+    $current_location_id = (int)($warehouse_location_id ?? ($all_locations[0]['id'] ?? 0));
+}
+
+/* ---- products for the dropdown (the whole shared catalog) ---- */
 $products = $pdo->query(
-    "SELECT id, name, sku, stock, buying_price, selling_price
-       FROM products ORDER BY name ASC"
+    "SELECT id, name, sku, stock, buying_price, selling_price FROM products ORDER BY name ASC"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 /* ---- filters ---- */
 $filter_product = filter_input(INPUT_GET, 'f_product', FILTER_VALIDATE_INT) ?: 0;
 $filter_from    = trim((string)($_GET['f_from'] ?? ''));
 $filter_to      = trim((string)($_GET['f_to'] ?? ''));
+$filter_all_locations = isset($_GET['all_locations']);
 
 $where  = [];
 $params = [];
+if (!$filter_all_locations) {
+    $where[] = 'b.location_id = :lid';
+    $params['lid'] = $current_location_id;
+}
 if ($filter_product > 0) {
     $where[] = 'b.product_id = :fp';
     $params['fp'] = $filter_product;
@@ -57,10 +87,11 @@ $page        = min($page, $total_pages);
 $offset      = ($page - 1) * $per_page;
 
 /* ---- history rows ---- */
-$sql = "SELECT b.*, p.name AS product_name, p.sku AS product_sku, u.full_name AS logged_by
+$sql = "SELECT b.*, p.name AS product_name, p.sku AS product_sku, u.full_name AS logged_by, l.name AS location_name
           FROM stock_batches b
           JOIN products p ON b.product_id = p.id
           LEFT JOIN users u ON b.created_by = u.id
+          LEFT JOIN stock_locations l ON b.location_id = l.id
           $where_sql
       ORDER BY b.purchased_at DESC, b.id DESC
          LIMIT $per_page OFFSET $offset";
@@ -123,6 +154,28 @@ require '../includes/staff_header.php';
         table.sheet td.col-prod { min-width: 240px; }
         table.sheet td.col-num input { text-align: right; }
 
+        /* ---- Product picker dropdown (replaces the native <datalist>) ---- */
+        .prod-cell { position: relative; }
+        .prod-newtag {
+            display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+            color: var(--kami-warning); background: var(--kami-warning-bg); border: 1px solid var(--kami-warning-border);
+            padding: 2px 7px; border-radius: var(--kami-radius-full); pointer-events: none;
+        }
+        .prod-cell.is-new .prod-newtag { display: inline-block; }
+        .prod-cell.is-new input.c-prod { padding-right: 68px; }
+        .prod-suggest {
+            display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 40;
+            background: var(--kami-surface-1); border: 1px solid var(--kami-border); border-radius: var(--kami-radius-md);
+            box-shadow: var(--kami-shadow-md); max-height: 240px; overflow-y: auto;
+        }
+        .prod-suggest.active { display: block; }
+        .prod-suggest-item { padding: 9px 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .prod-suggest-item:hover, .prod-suggest-item.hi { background: var(--kami-accent-bg); }
+        .prod-suggest-item .psi-name { font-size: 13px; font-weight: 600; color: var(--kami-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .prod-suggest-item .psi-meta { font-size: 11px; color: var(--kami-text-dim); white-space: nowrap; flex-shrink: 0; }
+        .prod-suggest-empty { padding: 10px 12px; font-size: 12px; color: var(--kami-text-dim); font-style: italic; }
+
         .row-del { background: none; border: none; color: var(--kami-text-dim); cursor: pointer; font-size: 16px; padding: 6px; border-radius: 6px; display: inline-flex; }
         .row-del:hover { color: #ef4444; background: rgba(239,68,68,0.12); }
 
@@ -161,8 +214,6 @@ require '../includes/staff_header.php';
         .modal-close { background: none; border: none; color: var(--kami-text-muted); font-size: 24px; cursor: pointer; }
         .modal-close:hover { color: var(--kami-text); }
 
-        .mobile-menu-btn, .sidebar-overlay { display: none; }
-
         @media (max-width: 1100px) { .restock-grid { grid-template-columns: 1fr; } }
         @media (max-width: 768px) {
             .form-row-grid { grid-template-columns: 1fr; }
@@ -175,17 +226,27 @@ require '../includes/staff_header.php';
             .data-table td::before { content: attr(data-label); font-weight: 600; color: var(--kami-text-muted); font-size: 13px; text-align: left; padding-right: 16px; }
             .modal-content { width: 90%; padding: 24px; }
         }
+
+        .branch-switcher { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .branch-switcher .form-select { width: auto; min-width: 220px; }
     </style>
 
         <h1 class="kami-page-title">Restock · Kurungura</h1>
         <p class="kami-page-sub">Record every stock purchase as its own batch — cost, retail price and remaining units, kept per batch so you always know your margin.</p>
 
-        <!-- product name list for the grid's autocomplete + name→id/price map -->
-        <datalist id="productNames">
-            <?php foreach ($products as $p): ?>
-                <option value="<?= htmlspecialchars($p['name']) ?>"></option>
-            <?php endforeach; ?>
-        </datalist>
+        <div class="branch-switcher animate-fade-in">
+            <label class="form-label" for="locationSwitch" style="margin:0;">Restocking into</label>
+            <select id="locationSwitch" class="form-select" onchange="location.href='restock.php?location='+this.value">
+                <?php foreach ($all_locations as $loc): ?>
+                    <option value="<?= (int)$loc['id'] ?>" <?= $current_location_id === (int)$loc['id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($loc['name']) ?> (<?= htmlspecialchars($loc['branch_name']) ?><?= $loc['is_warehouse'] ? ' — warehouse' : '' ?>)
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <a href="<?= $filter_all_locations ? 'restock.php' : 'restock.php?all_locations=1' ?>" class="btn" style="background:var(--kami-surface-3); color:var(--kami-text);">
+                <?= $filter_all_locations ? 'Show only this location\'s history' : 'Show history for all locations' ?>
+            </a>
+        </div>
 
         <div class="restock-grid animate-fade-in">
 
@@ -276,6 +337,7 @@ require '../includes/staff_header.php';
                             <tr>
                                 <th>Date</th>
                                 <th>Product</th>
+                                <th>Location</th>
                                 <th>Qty</th>
                                 <th>Buying</th>
                                 <th>Selling</th>
@@ -288,7 +350,7 @@ require '../includes/staff_header.php';
                         <tbody>
                             <?php if (empty($history)): ?>
                                 <tr>
-                                    <td colspan="9" data-label="Status" style="text-align:center; padding:40px; color: var(--kami-text-dim);">
+                                    <td colspan="10" data-label="Status" style="text-align:center; padding:40px; color: var(--kami-text-dim);">
                                         <i class="ph ph-package" style="font-size: 32px; margin-bottom: 8px; display:block;"></i>
                                         No restock batches match these filters yet.
                                     </td>
@@ -300,21 +362,24 @@ require '../includes/staff_header.php';
                                     $margin = margin_percent($buy, $sell);
                                 ?>
                                     <tr class="hover-scale">
-                                        <td data-label="Date" style="color: var(--kami-text-muted); white-space:nowrap;">
-                                            <?= date('M j, Y · g:i A', strtotime($row['purchased_at'])) ?>
-                                        </td>
                                         <td data-label="Product" style="font-weight:700;">
                                             <?= htmlspecialchars($row['product_name']) ?>
                                         </td>
-                                        <td data-label="Qty"><?= (int)$row['quantity_bought'] ?></td>
-                                        <td data-label="Buying">$<?= number_format($buy, 2) ?></td>
+                                        <td data-label="Location" class="row-secondary" style="color: var(--kami-text-muted);">
+                                            <?= htmlspecialchars($row['location_name'] ?? '—') ?>
+                                        </td>
                                         <td data-label="Selling" style="color: var(--kami-accent); font-weight:700;">$<?= number_format($sell, 2) ?></td>
                                         <td data-label="Remaining">
                                             <span class="badge <?= (int)$row['quantity_remaining'] > 0 ? 'badge-success' : 'badge-danger' ?>">
                                                 <?= (int)$row['quantity_remaining'] ?> left
                                             </span>
                                         </td>
-                                        <td data-label="Margin %">
+                                        <td data-label="Date" class="row-secondary" style="color: var(--kami-text-muted); white-space:nowrap;">
+                                            <?= date('M j, Y · g:i A', strtotime($row['purchased_at'])) ?>
+                                        </td>
+                                        <td data-label="Qty" class="row-secondary"><?= (int)$row['quantity_bought'] ?></td>
+                                        <td data-label="Buying" class="row-secondary">$<?= number_format($buy, 2) ?></td>
+                                        <td data-label="Margin %" class="row-secondary">
                                             <?php if ($margin === null): ?>
                                                 <span class="margin-na">n/a</span>
                                             <?php else: ?>
@@ -323,7 +388,7 @@ require '../includes/staff_header.php';
                                                 </span>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-label="Logged By" style="color: var(--kami-text-muted);">
+                                        <td data-label="Logged By" class="row-secondary" style="color: var(--kami-text-muted);">
                                             <?= htmlspecialchars($row['logged_by'] ?? '—') ?>
                                         </td>
                                         <td data-label="Edit">
@@ -331,6 +396,9 @@ require '../includes/staff_header.php';
                                                 onclick='openBatchEdit(<?= (int)$row["id"] ?>, <?= htmlspecialchars(json_encode($row["product_name"]), ENT_QUOTES, "UTF-8") ?>, <?= $buy ?>, <?= $sell ?>)'>
                                                 <i class="ph ph-pencil-simple"></i>
                                             </button>
+                                        </td>
+                                        <td class="row-expand-cell">
+                                            <button type="button" class="row-expand-btn"><i class="ph-bold ph-caret-down"></i> Details</button>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -387,18 +455,26 @@ require '../includes/staff_header.php';
     <!-- local SheetJS parser (works offline) for Excel/CSV import -->
     <script src="../assets/js/xlsx.full.min.js"></script>
     <script>
-        /* name(lower) -> {id, selling}  for autocomplete + price prefill */
+        /* name(lower) -> {id, name, selling, stock}  for the product picker + price prefill */
         const PRODUCTS = <?= json_encode(array_reduce($products, function ($a, $p) {
-            $a[mb_strtolower($p['name'])] = ['id' => (int)$p['id'], 'selling' => (float)$p['selling_price']];
+            $a[mb_strtolower($p['name'])] = [
+                'id' => (int)$p['id'], 'name' => $p['name'],
+                'selling' => (float)$p['selling_price'], 'stock' => (int)$p['stock']
+            ];
             return $a;
         }, [])) ?>;
+        const PRODUCT_LIST = Object.values(PRODUCTS);
 
         const COLS = ['c-prod', 'c-qty', 'c-buy', 'c-sell'];
         const sheetBody = document.getElementById('sheetBody');
 
         function rowHtml() {
             return '<td class="rownum"></td>'
-                + '<td class="col-prod"><input class="cell c-prod" list="productNames" placeholder="Product name"></td>'
+                + '<td class="col-prod"><div class="prod-cell">'
+                +   '<input class="cell c-prod" autocomplete="off" placeholder="Product name">'
+                +   '<span class="prod-newtag">New</span>'
+                +   '<div class="prod-suggest"></div>'
+                + '</div></td>'
                 + '<td class="col-num"><input class="cell c-qty" type="number" min="0" step="1" placeholder="0"></td>'
                 + '<td class="col-num"><input class="cell c-buy" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="col-num"><input class="cell c-sell" type="number" min="0" step="0.01" placeholder="0.00"></td>'
@@ -414,6 +490,7 @@ require '../includes/staff_header.php';
                 tr.querySelector('.c-qty').value  = vals.qty  || '';
                 tr.querySelector('.c-buy').value  = vals.buy  || '';
                 tr.querySelector('.c-sell').value = vals.sell || '';
+                updateNewTag(tr);
             }
             tr.querySelectorAll('input.cell').forEach(function (inp) {
                 inp.addEventListener('input', function () {
@@ -421,7 +498,97 @@ require '../includes/staff_header.php';
                     ensureTrailingRow(); renumber(); updateSummary();
                 });
             });
+            wireProductCell(tr);
             return tr;
+        }
+
+        /* ---- Styled product picker (replaces the native <datalist>, which iOS Safari doesn't render at all) ---- */
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function updateNewTag(tr, qOverride) {
+            const cell = tr.querySelector('.prod-cell');
+            const val = (qOverride !== undefined ? qOverride : tr.querySelector('.c-prod').value.trim().toLowerCase());
+            cell.classList.toggle('is-new', val !== '' && !PRODUCTS[val]);
+        }
+
+        function closeSuggestions(tr) {
+            tr.querySelector('.prod-suggest').classList.remove('active');
+        }
+
+        function renderSuggestions(tr) {
+            const input = tr.querySelector('.c-prod');
+            const box = tr.querySelector('.prod-suggest');
+            const q = input.value.trim().toLowerCase();
+            updateNewTag(tr, q);
+            if (!q) { box.classList.remove('active'); box.innerHTML = ''; return; }
+
+            const matches = PRODUCT_LIST.filter(function (p) {
+                return p.name.toLowerCase().indexOf(q) !== -1;
+            }).slice(0, 8);
+
+            if (!matches.length) {
+                box.innerHTML = '<div class="prod-suggest-empty"><i class="ph ph-sparkle"></i> No match — this will create a new product</div>';
+            } else {
+                box.innerHTML = matches.map(function (p) {
+                    return '<div class="prod-suggest-item" data-name="' + escapeHtml(p.name) + '">'
+                        + '<span class="psi-name">' + escapeHtml(p.name) + '</span>'
+                        + '<span class="psi-meta">' + p.stock + ' in stock · $' + p.selling.toFixed(2) + '</span>'
+                        + '</div>';
+                }).join('');
+            }
+            box.classList.add('active');
+        }
+
+        function selectProduct(tr, name) {
+            const input = tr.querySelector('.c-prod');
+            input.value = name;
+            closeSuggestions(tr);
+            updateNewTag(tr);
+            autofillRow(tr);
+            ensureTrailingRow(); renumber(); updateSummary();
+            const qtyInp = tr.querySelector('.c-qty');
+            if (qtyInp) qtyInp.focus();
+        }
+
+        function wireProductCell(tr) {
+            const input = tr.querySelector('.c-prod');
+            const box = tr.querySelector('.prod-suggest');
+
+            input.addEventListener('input', function () { renderSuggestions(tr); });
+            input.addEventListener('focus', function () { if (input.value.trim()) renderSuggestions(tr); });
+            input.addEventListener('blur', function () { setTimeout(function () { closeSuggestions(tr); }, 150); });
+            input.addEventListener('keydown', function (e) {
+                const items = box.querySelectorAll('.prod-suggest-item');
+                if (!box.classList.contains('active') || !items.length) return;
+                const hi = box.querySelector('.prod-suggest-item.hi');
+                let idx = hi ? Array.prototype.indexOf.call(items, hi) : -1;
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    idx = Math.min(items.length - 1, idx + 1);
+                    items.forEach(function (it) { it.classList.remove('hi'); });
+                    items[idx].classList.add('hi');
+                    items[idx].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    idx = Math.max(0, idx - 1);
+                    items.forEach(function (it) { it.classList.remove('hi'); });
+                    items[idx].classList.add('hi');
+                    items[idx].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'Enter') {
+                    if (hi) { e.preventDefault(); selectProduct(tr, hi.getAttribute('data-name')); }
+                } else if (e.key === 'Escape') {
+                    closeSuggestions(tr);
+                }
+            });
+
+            box.addEventListener('mousedown', function (e) {
+                const item = e.target.closest('.prod-suggest-item');
+                if (!item || !item.dataset.name) return;
+                e.preventDefault();
+                selectProduct(tr, item.dataset.name);
+            });
         }
 
         function removeRow(btn) {
@@ -510,6 +677,7 @@ require '../includes/staff_header.php';
                     }
                 });
                 autofillRow(tr);
+                updateNewTag(tr);
             });
             ensureTrailingRow(); renumber(); updateSummary();
             toast('Pasted', lines.length + ' row(s) pasted. Review then Save All.', 'success');
@@ -613,6 +781,7 @@ require '../includes/staff_header.php';
             const fd = new FormData();
             fd.append('action', 'batch_save');
             fd.append('ajax', '1');
+            fd.append('location_id', <?= (int)$current_location_id ?>);
             fd.append('rows', JSON.stringify(rows));
             fetch('process_restock.php', { method: 'POST', body: fd })
                 .then(function (r) { return r.json(); })
