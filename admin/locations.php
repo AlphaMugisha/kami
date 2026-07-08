@@ -207,6 +207,24 @@ require '../includes/staff_header.php';
         .avail-hint { font-size: 12.5px; color: var(--kami-text-dim); margin: -10px 0 16px; }
         .avail-hint button { background: none; border: none; color: var(--kami-accent); font-weight: 700; cursor: pointer; padding: 0; font-size: 12.5px; }
 
+        #gridTransferModal .modal-content { max-width: 560px; }
+        .gt-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .gt-row { display: grid; grid-template-columns: 1fr 110px 32px; gap: 8px; align-items: start; }
+        .gt-row .gt-row-hint { grid-column: 1 / 2; font-size: 11.5px; color: var(--kami-text-dim); margin-top: 4px; }
+        .gt-row-del { background: none; border: none; color: var(--kami-text-dim); cursor: pointer; font-size: 18px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+        .gt-row-del:hover { color: #ef4444; }
+        .gt-add-row-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; margin-bottom: 6px;
+            background: transparent; border: 1px dashed var(--kami-border-strong); border-radius: var(--kami-radius-full);
+            font-size: 13px; font-weight: 700; color: var(--kami-text-muted); cursor: pointer;
+        }
+        .gt-add-row-btn:hover { color: var(--kami-accent); border-color: var(--kami-accent-border); }
+
+        @media (max-width: 768px) {
+            .gt-row { grid-template-columns: 1fr; }
+            .gt-row-del { justify-self: end; height: auto; }
+        }
+
         .empty-state-card { text-align: center; padding: 48px 24px; color: var(--kami-text-dim); }
         .empty-state-card i { font-size: 40px; margin-bottom: 12px; display: block; }
 
@@ -464,18 +482,10 @@ require '../includes/staff_header.php';
             </div>
 
             <form id="gridTransferForm" onsubmit="return submitGridTransfer(event)">
-                <div class="form-group">
-                    <label class="form-label">Product</label>
-                    <select id="gtProduct" class="form-select" required onchange="updateAvailHint()">
-                        <?php foreach ($products as $p): ?>
-                            <option value="<?= (int)$p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
                 <div class="form-row-grid">
                     <div class="form-group">
                         <label class="form-label">From</label>
-                        <select id="gtFrom" class="form-select" required onchange="updateAvailHint()">
+                        <select id="gtFrom" class="form-select" required onchange="updateAvailHints()">
                             <?php foreach ($locationsByBranch as $bid => $group): ?>
                                 <optgroup label="<?= htmlspecialchars($group['name']) ?>">
                                     <?php foreach ($group['locations'] as $loc): ?>
@@ -498,12 +508,14 @@ require '../includes/staff_header.php';
                         </select>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Quantity</label>
-                    <input type="number" min="1" id="gtQty" class="form-input" required placeholder="0">
-                </div>
-                <p class="avail-hint" id="gtAvailHint">— available</p>
-                <div class="form-group">
+
+                <label class="form-label">Products</label>
+                <div id="gtRows" class="gt-rows"></div>
+                <button type="button" class="gt-add-row-btn" onclick="addTransferRow()">
+                    <i class="ph-bold ph-plus"></i> Add another product
+                </button>
+
+                <div class="form-group" style="margin-top: 16px;">
                     <label class="form-label">Notes <span style="color:var(--kami-text-dim);font-weight:400;">(optional)</span></label>
                     <input type="text" id="gtNotes" class="form-input" placeholder="Optional" autocomplete="off">
                 </div>
@@ -519,6 +531,7 @@ require '../includes/staff_header.php';
         /* productId -> {locationId: qty} */
         const STOCK = <?= json_encode($locationStockMap, JSON_FORCE_OBJECT) ?>;
         const LOCATIONS = <?= json_encode(array_map(fn($l) => ['id' => (int)$l['id'], 'name' => $l['name']], $all_locations)) ?>;
+        const PRODUCTS = <?= json_encode(array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['name']], $products)) ?>;
 
         /* ---- Grid search ---- */
         function filterGrid() {
@@ -553,35 +566,74 @@ require '../includes/staff_header.php';
             return other ? other.id : fromId;
         }
 
-        function updateAvailHint() {
-            const pid = parseInt(document.getElementById('gtProduct').value, 10);
-            const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            const qty = availableQty(pid, lid);
-            const hint = document.getElementById('gtAvailHint');
-            hint.innerHTML = qty + ' available at this location' + (qty > 0 ? ' — <button type="button" onclick="useMaxQty()">use max</button>' : '');
-            document.getElementById('gtQty').max = qty > 0 ? qty : '';
+        /* ---- Product rows: each row is its own Product select + Qty input ---- */
+        let gtRowSeq = 0;
+
+        function productOptionsHtml(selectedId) {
+            return PRODUCTS.map(function (p) {
+                return '<option value="' + p.id + '"' + (p.id === selectedId ? ' selected' : '') + '>' + p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</option>';
+            }).join('');
         }
 
-        function useMaxQty() {
-            const pid = parseInt(document.getElementById('gtProduct').value, 10);
+        function addTransferRow(productId) {
+            const id = 'gtRow' + (++gtRowSeq);
+            const row = document.createElement('div');
+            row.className = 'gt-row';
+            row.id = id;
+            row.innerHTML =
+                '<select class="form-select gt-row-product" onchange="updateRowHint(\'' + id + '\')">' + productOptionsHtml(productId) + '</select>' +
+                '<input type="number" min="1" class="form-input gt-row-qty" placeholder="Qty">' +
+                '<button type="button" class="gt-row-del" title="Remove" onclick="removeTransferRow(\'' + id + '\')"><i class="ph ph-x"></i></button>' +
+                '<div class="gt-row-hint"></div>';
+            document.getElementById('gtRows').appendChild(row);
+            updateRowHint(id);
+            return row;
+        }
+
+        function removeTransferRow(rowId) {
+            const rows = document.getElementById('gtRows');
+            const row = document.getElementById(rowId);
+            if (row) row.remove();
+            if (!rows.children.length) addTransferRow();
+        }
+
+        function updateRowHint(rowId) {
+            const row = document.getElementById(rowId);
+            if (!row) return;
+            const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
             const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            document.getElementById('gtQty').value = availableQty(pid, lid);
+            const qty = availableQty(pid, lid);
+            const qtyInput = row.querySelector('.gt-row-qty');
+            qtyInput.max = qty > 0 ? qty : '';
+            row.querySelector('.gt-row-hint').innerHTML = qty + ' available at this location' +
+                (qty > 0 ? ' — <button type="button" onclick="useRowMaxQty(\'' + rowId + '\')">use max</button>' : '');
+        }
+
+        function useRowMaxQty(rowId) {
+            const row = document.getElementById(rowId);
+            if (!row) return;
+            const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
+            const lid = parseInt(document.getElementById('gtFrom').value, 10);
+            row.querySelector('.gt-row-qty').value = availableQty(pid, lid);
+        }
+
+        function updateAvailHints() {
+            document.querySelectorAll('#gtRows .gt-row').forEach(function (row) { updateRowHint(row.id); });
         }
 
         function openGridTransfer(productId, fromLocationId) {
-            const productSel = document.getElementById('gtProduct');
             const fromSel = document.getElementById('gtFrom');
             const toSel = document.getElementById('gtTo');
 
-            if (productId !== undefined) productSel.value = productId;
             if (fromLocationId !== undefined) fromSel.value = fromLocationId;
-
             const from = parseInt(fromSel.value, 10);
             toSel.value = pickDefaultTo(from);
 
-            document.getElementById('gtQty').value = '';
+            document.getElementById('gtRows').innerHTML = '';
+            gtRowSeq = 0;
+            addTransferRow(productId);
+
             document.getElementById('gtNotes').value = '';
-            updateAvailHint();
             document.getElementById('gridTransferModal').classList.add('active');
         }
         function closeGridTransfer() { document.getElementById('gridTransferModal').classList.remove('active'); }
@@ -595,16 +647,32 @@ require '../includes/staff_header.php';
                 if (window.triggerDynamicIsland) window.triggerDynamicIsland('Invalid Move', 'Source and destination must be different locations.', 'error');
                 return false;
             }
+
+            const rows = [];
+            for (const rowEl of document.querySelectorAll('#gtRows .gt-row')) {
+                const pid = parseInt(rowEl.querySelector('.gt-row-product').value, 10);
+                const qty = parseInt(rowEl.querySelector('.gt-row-qty').value, 10);
+                if (!qty || qty <= 0) continue;
+                rows.push({ product_id: pid, quantity: qty });
+            }
+            if (!rows.length) {
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Nothing To Move', 'Enter a quantity for at least one product.', 'error');
+                return false;
+            }
+
             const btn = document.getElementById('gtSubmitBtn');
             btn.disabled = true;
             try {
-                const fd = new FormData();
-                fd.append('product_id', document.getElementById('gtProduct').value);
-                fd.append('from_location_id', from);
-                fd.append('to_location_id', to);
-                fd.append('quantity', document.getElementById('gtQty').value);
-                fd.append('notes', document.getElementById('gtNotes').value);
-                const res = await fetch('../api/transfer_stock.php', { method: 'POST', body: fd });
+                const res = await fetch('../api/transfer_stock_bulk.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from_location_id: parseInt(from, 10),
+                        to_location_id: parseInt(to, 10),
+                        notes: document.getElementById('gtNotes').value,
+                        rows: rows,
+                    }),
+                });
                 const data = await res.json();
                 if (data.success) {
                     closeGridTransfer();
