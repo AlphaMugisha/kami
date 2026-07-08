@@ -366,6 +366,34 @@ function receive_transfer(PDO $pdo, int $transfer_id, int $user_id): void
 }
 
 /**
+ * Convert a data-entry quantity ("I'm restocking/sending 3 boxes") into raw
+ * units, using the product's own box size. Every stock number that actually
+ * gets stored (stock_batches, products.stock, FIFO, etc.) stays unit-based —
+ * this is the one place "boxes" get turned into units, right at the moment
+ * they're recorded, so it can never be spoofed from the browser.
+ *
+ * @param string $unit_type  'unit' (default) or 'box'
+ * @throws InvalidArgumentException if 'box' is requested but this product
+ *         has no units_per_box set yet.
+ */
+function resolve_box_quantity(PDO $pdo, int $product_id, int $quantity, string $unit_type = 'unit'): int
+{
+    if ($unit_type !== 'box') {
+        return $quantity;
+    }
+
+    $stmt = $pdo->prepare("SELECT units_per_box FROM products WHERE id = :id");
+    $stmt->execute(['id' => $product_id]);
+    $units_per_box = $stmt->fetchColumn();
+
+    if ($units_per_box === false || $units_per_box === null || (int)$units_per_box <= 0) {
+        throw new InvalidArgumentException('This product has no box size set yet — restock it as units, or set its "units per box" in Inventory first.');
+    }
+
+    return $quantity * (int)$units_per_box;
+}
+
+/**
  * Profit margin percentage from a buying/selling pair.
  * Returns null when the buying price is zero (margin undefined).
  */

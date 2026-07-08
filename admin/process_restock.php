@@ -132,11 +132,12 @@ if ($action === 'batch_save') {
         $pdo->beginTransaction();
 
         foreach ($rows as $i => $r) {
-            $name  = trim((string)($r['product'] ?? ''));
-            $pidIn = (isset($r['product_id']) && $r['product_id']) ? (int)$r['product_id'] : null;
-            $qty   = (int)($r['qty'] ?? 0);
-            $buy   = (float)($r['buying_price'] ?? 0);
-            $sell  = (float)($r['selling_price'] ?? 0);
+            $name      = trim((string)($r['product'] ?? ''));
+            $pidIn     = (isset($r['product_id']) && $r['product_id']) ? (int)$r['product_id'] : null;
+            $qty       = (int)($r['qty'] ?? 0);
+            $buy       = (float)($r['buying_price'] ?? 0);
+            $sell      = (float)($r['selling_price'] ?? 0);
+            $unit_type = ($r['unit_type'] ?? 'unit') === 'box' ? 'box' : 'unit';
 
             // Silently skip completely blank rows (trailing grid rows).
             if ($name === '' && $qty <= 0 && $buy <= 0 && $sell <= 0) {
@@ -159,7 +160,12 @@ if ($action === 'batch_save') {
             if ($was_created) $created++;
 
             if ($qty > 0) {
-                log_restock($pdo, $branch_id, $pid, $qty, $buy, $sell, null, 'Bulk grid entry', $user_id, $location_id);
+                try {
+                    $units = resolve_box_quantity($pdo, $pid, $qty, $unit_type);
+                } catch (InvalidArgumentException $e) {
+                    throw new RuntimeException("Row {$line} ({$name}): " . $e->getMessage());
+                }
+                log_restock($pdo, $branch_id, $pid, $units, $buy, $sell, null, 'Bulk grid entry', $user_id, $location_id);
                 $restocked++;
             } else {
                 update_product_prices($pdo, $pid, $buy, $sell);
@@ -196,6 +202,7 @@ $selling      = filter_input(INPUT_POST, 'selling_price', FILTER_VALIDATE_FLOAT)
 $purchased_at = $_POST['purchased_at'] ?? null;
 $notes        = $_POST['notes'] ?? null;
 $location_id  = filter_input(INPUT_POST, 'location_id', FILTER_VALIDATE_INT);
+$unit_type    = ($_POST['unit_type'] ?? 'unit') === 'box' ? 'box' : 'unit';
 
 if (!$product_id || !$quantity || $quantity <= 0 || $buying === false || $selling === false || $buying < 0 || $selling < 0 || !$location_id) {
     respond(false, 'Please fill in a product, a location, a positive quantity, and valid prices.');
@@ -217,7 +224,8 @@ try {
     // location's own branch is what the new batch gets stamped with.
     $branch_id = get_location_branch($pdo, $location_id);
 
-    $batch_id = log_restock($pdo, $branch_id, $product_id, $quantity, (float)$buying, (float)$selling, $purchased_at, $notes, $user_id, $location_id);
+    $units = resolve_box_quantity($pdo, $product_id, $quantity, $unit_type);
+    $batch_id = log_restock($pdo, $branch_id, $product_id, $units, (float)$buying, (float)$selling, $purchased_at, $notes, $user_id, $location_id);
 
     // Read back the fresh cached values for the UI.
     $stmt = $pdo->prepare("SELECT stock, buying_price, selling_price FROM products WHERE id = :id");
@@ -226,7 +234,7 @@ try {
 
     $pdo->commit();
 
-    respond(true, "Restock logged: +{$quantity} × {$product_name}.", [
+    respond(true, "Restock logged: +{$units} × {$product_name}.", [
         'batch_id'      => $batch_id,
         'product_id'    => $product_id,
         'new_stock'     => (int)$fresh['stock'],

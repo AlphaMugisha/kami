@@ -92,6 +92,7 @@ try {
         $line = $i + 1;
         $product_id = filter_var($r['product_id'] ?? null, FILTER_VALIDATE_INT);
         $quantity   = filter_var($r['quantity'] ?? null, FILTER_VALIDATE_INT);
+        $unit_type  = ($r['unit_type'] ?? 'unit') === 'box' ? 'box' : 'unit';
         if (!$product_id) {
             throw new RuntimeException("Row {$line}: choose a product.");
         }
@@ -102,7 +103,12 @@ try {
             throw new RuntimeException("Row {$line}: this product is already in the list above — combine them into one row.");
         }
         $seen_products[$product_id] = true;
-        $clean_rows[] = ['product_id' => $product_id, 'quantity' => $quantity];
+        try {
+            $units = resolve_box_quantity($pdo, $product_id, $quantity, $unit_type);
+        } catch (InvalidArgumentException $e) {
+            throw new RuntimeException("Row {$line}: " . $e->getMessage());
+        }
+        $clean_rows[] = ['product_id' => $product_id, 'quantity' => $units];
     }
 
     $product_ids = array_column($clean_rows, 'product_id');

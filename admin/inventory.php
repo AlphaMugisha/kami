@@ -65,6 +65,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     $availability = (string)($_POST['availability'] ?? 'shared');
     $opening_location_id = filter_input(INPUT_POST, 'opening_location_id', FILTER_VALIDATE_INT) ?: $warehouse_location_id;
     if ($buying === false || $buying === null) $buying = 0.0;
+    $units_per_box = filter_input(INPUT_POST, 'units_per_box', FILTER_VALIDATE_INT);
+    if ($units_per_box !== false && $units_per_box <= 0) $units_per_box = null;
+    if ($units_per_box === false) $units_per_box = null;
 
     [$shared, $product_branch_id] = parse_availability($availability, $main_branch_id);
 
@@ -73,8 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
             $pdo->beginTransaction();
             // Create the product with its cached batch prices.
             $stmt = $pdo->prepare(
-                "INSERT INTO products (branch_id, shared, sku, name, category, price, buying_price, selling_price, stock)
-                 VALUES (:bid, :shared, :sku, :name, :category, :price, :buying, :price2, :stock)"
+                "INSERT INTO products (branch_id, shared, sku, name, category, price, buying_price, selling_price, stock, units_per_box)
+                 VALUES (:bid, :shared, :sku, :name, :category, :price, :buying, :price2, :stock, :upb)"
             );
             $stmt->execute([
                 'bid' => $product_branch_id,
@@ -85,7 +88,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
                 'price' => $price,
                 'buying' => $buying,
                 'price2' => $price,
-                'stock' => $stock
+                'stock' => $stock,
+                'upb' => $units_per_box,
             ]);
             $new_pid = (int)$pdo->lastInsertId();
 
@@ -138,15 +142,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_product'])) {
     $edit_price = filter_input(INPUT_POST, 'edit_price', FILTER_VALIDATE_FLOAT);
     $edit_stock = filter_input(INPUT_POST, 'edit_stock', FILTER_VALIDATE_INT);
     $edit_availability = (string)($_POST['edit_availability'] ?? 'shared');
+    $edit_units_per_box = filter_input(INPUT_POST, 'edit_units_per_box', FILTER_VALIDATE_INT);
+    if ($edit_units_per_box !== false && $edit_units_per_box <= 0) $edit_units_per_box = null;
+    if ($edit_units_per_box === false) $edit_units_per_box = null;
 
     if ($edit_id && $edit_price !== false && $edit_stock !== false) {
         [$shared, $product_branch_id] = parse_availability($edit_availability, $main_branch_id);
-        $stmt = $pdo->prepare("UPDATE products SET price = :price, stock = :stock, shared = :shared, branch_id = :bid WHERE id = :id");
+        $stmt = $pdo->prepare("UPDATE products SET price = :price, stock = :stock, shared = :shared, branch_id = :bid, units_per_box = :upb WHERE id = :id");
         $stmt->execute([
             'price' => $edit_price,
             'stock' => $edit_stock,
             'shared' => $shared,
             'bid' => $product_branch_id,
+            'upb' => $edit_units_per_box,
             'id' => $edit_id,
         ]);
         $success_msg = "Product metrics synchronized successfully.";
@@ -334,6 +342,9 @@ require '../includes/staff_header.php';
                                     <tr class="hover-scale">
                                         <td data-label="Name" style="font-weight: 700; font-size: 15px; color: var(--kami-text);">
                                             <?= htmlspecialchars($product['name']) ?>
+                                            <?php if (!empty($product['units_per_box'])): ?>
+                                                <span class="badge badge-info" style="font-size: 9px; margin-left: 6px; font-weight: 700;" title="Units per box"><?= (int)$product['units_per_box'] ?>/box</span>
+                                            <?php endif; ?>
                                         </td>
                                         <td data-label="Selling" style="font-weight: 700; color: var(--kami-accent);">
                                             $<?= number_format($p_sell, 2) ?>
@@ -368,10 +379,10 @@ require '../includes/staff_header.php';
                                         </td>
                                         <td data-label="Actions">
                                             <div class="action-btns">
-                                                <button type="button" class="btn-icon" title="Restock (Kurungura)" onclick='openRestockModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $p_sell ?>)'>
+                                                <button type="button" class="btn-icon" title="Restock (Kurungura)" onclick='openRestockModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $p_sell ?>, <?= $product["units_per_box"] !== null ? (int)$product["units_per_box"] : "null" ?>)'>
                                                     <i class="ph ph-shopping-cart-simple"></i>
                                                 </button>
-                                                <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>, <?= htmlspecialchars(json_encode($availability_value), ENT_QUOTES, "UTF-8") ?>)'>
+                                                <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>, <?= htmlspecialchars(json_encode($availability_value), ENT_QUOTES, "UTF-8") ?>, <?= $product["units_per_box"] !== null ? (int)$product["units_per_box"] : "null" ?>)'>
                                                     <i class="ph ph-pencil-simple"></i>
                                                 </button>
                                                 <form action="inventory.php" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this product?');">
@@ -445,6 +456,10 @@ require '../includes/staff_header.php';
                     <input type="number" name="stock" class="form-input" required placeholder="0">
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Units Per Box <span style="color:var(--kami-text-dim);font-weight:400;">(optional — leave blank if never sold/sent by the box)</span></label>
+                    <input type="number" min="1" step="1" name="units_per_box" class="form-input" placeholder="e.g. 24">
+                </div>
+                <div class="form-group">
                     <label class="form-label">Where does this stock land?</label>
                     <select name="opening_location_id" class="form-select">
                         <?php foreach ($all_locations as $l): ?>
@@ -480,6 +495,10 @@ require '../includes/staff_header.php';
                 <div class="form-group">
                     <label class="form-label">Adjust Stock (company-wide total)</label>
                     <input type="number" name="edit_stock" id="editStockInput" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Units Per Box <span style="color:var(--kami-text-dim);font-weight:400;">(optional)</span></label>
+                    <input type="number" min="1" step="1" name="edit_units_per_box" id="editUnitsPerBoxInput" class="form-input" placeholder="e.g. 24">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Availability</label>
@@ -524,10 +543,18 @@ require '../includes/staff_header.php';
                         <label class="form-label">Quantity Bought</label>
                         <input type="number" min="1" name="quantity" id="rsModalQty" class="form-input" required placeholder="0">
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Buying Price ($)</label>
-                        <input type="number" step="0.01" min="0" name="buying_price" id="rsModalBuy" class="form-input" required placeholder="0.00">
+                    <div class="form-group" id="rsModalUnitTypeGroup" style="display:none;">
+                        <label class="form-label">Sent As</label>
+                        <select name="unit_type" id="rsModalUnitType" class="form-select">
+                            <option value="unit">Units</option>
+                            <option value="box">Boxes</option>
+                        </select>
+                        <p class="avail-hint" id="rsModalBoxHint" style="margin: 6px 0 0;"></p>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Buying Price ($ per unit)</label>
+                    <input type="number" step="0.01" min="0" name="buying_price" id="rsModalBuy" class="form-input" required placeholder="0.00">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Selling Price ($)</label>
@@ -556,12 +583,24 @@ require '../includes/staff_header.php';
         });
 
         /* ---- Quick restock modal (AJAX -> process_restock.php) ---- */
-        function openRestockModal(id, name, sellingPrice) {
+        function openRestockModal(id, name, sellingPrice, unitsPerBox) {
             document.getElementById('rsModalPid').value = id;
             document.getElementById('restockProductName').innerText = name;
             document.getElementById('rsModalQty').value = '';
             document.getElementById('rsModalBuy').value = '';
             document.getElementById('rsModalSell').value = (Number(sellingPrice) > 0) ? Number(sellingPrice).toFixed(2) : '';
+
+            const unitTypeGroup = document.getElementById('rsModalUnitTypeGroup');
+            const unitTypeSelect = document.getElementById('rsModalUnitType');
+            const boxHint = document.getElementById('rsModalBoxHint');
+            unitTypeSelect.value = 'unit';
+            if (unitsPerBox) {
+                unitTypeGroup.style.display = '';
+                boxHint.textContent = '1 box = ' + unitsPerBox + ' units';
+            } else {
+                unitTypeGroup.style.display = 'none';
+            }
+
             document.getElementById('restockModal').classList.add('active');
         }
         function closeRestockModal() {
@@ -593,12 +632,13 @@ require '../includes/staff_header.php';
             if (e.target === this) closeRestockModal();
         });
 
-        function openEditModal(id, name, price, stock, availability) {
+        function openEditModal(id, name, price, stock, availability, unitsPerBox) {
             document.getElementById('editIdInput').value = id;
             document.getElementById('editProductName').innerText = name;
             document.getElementById('editPriceInput').value = price;
             document.getElementById('editStockInput').value = stock;
             document.getElementById('editAvailabilityInput').value = availability;
+            document.getElementById('editUnitsPerBoxInput').value = unitsPerBox || '';
             document.getElementById('editModal').classList.add('active');
         }
 

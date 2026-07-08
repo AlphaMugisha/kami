@@ -95,7 +95,7 @@ foreach ($all_locations as $l) {
     $locationsByBranch[(int)$l['branch_id']]['locations'][] = $l;
 }
 
-$products = $pdo->query("SELECT id, sku, name, stock FROM products ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$products = $pdo->query("SELECT id, sku, name, stock, units_per_box FROM products ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 $locationStockMap = [];
 $grandTotalUnits = 0;
@@ -207,9 +207,9 @@ require '../includes/staff_header.php';
         .avail-hint { font-size: 12.5px; color: var(--kami-text-dim); margin: -10px 0 16px; }
         .avail-hint button { background: none; border: none; color: var(--kami-accent); font-weight: 700; cursor: pointer; padding: 0; font-size: 12.5px; }
 
-        #gridTransferModal .modal-content { max-width: 560px; }
+        #gridTransferModal .modal-content { max-width: 600px; }
         .gt-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-        .gt-row { display: grid; grid-template-columns: 1fr 110px 32px; gap: 8px; align-items: start; }
+        .gt-row { display: grid; grid-template-columns: 1fr 80px 90px 32px; gap: 8px; align-items: start; }
         .gt-row .gt-row-hint { grid-column: 1 / 2; font-size: 11.5px; color: var(--kami-text-dim); margin-top: 4px; }
         .gt-row-del { background: none; border: none; color: var(--kami-text-dim); cursor: pointer; font-size: 18px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
         .gt-row-del:hover { color: #ef4444; }
@@ -219,6 +219,26 @@ require '../includes/staff_header.php';
             font-size: 13px; font-weight: 700; color: var(--kami-text-muted); cursor: pointer;
         }
         .gt-add-row-btn:hover { color: var(--kami-accent); border-color: var(--kami-accent-border); }
+
+        .gt-avail-panel {
+            max-height: 160px; overflow-y: auto; margin-bottom: 16px;
+            border: 1px solid var(--kami-border); border-radius: var(--kami-radius-md);
+            background: var(--kami-surface-2);
+        }
+        .gt-avail-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 8px 12px; border-bottom: 1px solid var(--kami-border);
+        }
+        .gt-avail-row:last-child { border-bottom: none; }
+        .gt-avail-row .gt-avail-name { font-size: 13px; font-weight: 600; color: var(--kami-text); }
+        .gt-avail-row .gt-avail-qty { font-size: 12px; color: var(--kami-text-muted); margin-left: 8px; }
+        .gt-avail-add-btn {
+            background: var(--kami-accent-bg); border: 1px solid var(--kami-accent-border); color: var(--kami-accent);
+            border-radius: var(--kami-radius-sm); padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+        }
+        .gt-avail-add-btn:hover { filter: brightness(1.1); }
+        .gt-avail-add-btn.added { background: var(--kami-surface-3); border-color: var(--kami-border); color: var(--kami-text-dim); }
+        .gt-avail-empty { padding: 16px 12px; font-size: 12.5px; color: var(--kami-text-dim); text-align: center; }
 
         @media (max-width: 768px) {
             .gt-row { grid-template-columns: 1fr; }
@@ -509,7 +529,10 @@ require '../includes/staff_header.php';
                     </div>
                 </div>
 
-                <label class="form-label">Products</label>
+                <label class="form-label">Available at <span id="gtAvailFromName">this location</span></label>
+                <div id="gtAvailablePanel" class="gt-avail-panel"></div>
+
+                <label class="form-label">Products To Move</label>
                 <div id="gtRows" class="gt-rows"></div>
                 <button type="button" class="gt-add-row-btn" onclick="addTransferRow()">
                     <i class="ph-bold ph-plus"></i> Add another product
@@ -531,7 +554,10 @@ require '../includes/staff_header.php';
         /* productId -> {locationId: qty} */
         const STOCK = <?= json_encode($locationStockMap, JSON_FORCE_OBJECT) ?>;
         const LOCATIONS = <?= json_encode(array_map(fn($l) => ['id' => (int)$l['id'], 'name' => $l['name']], $all_locations)) ?>;
-        const PRODUCTS = <?= json_encode(array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['name']], $products)) ?>;
+        const PRODUCTS = <?= json_encode(array_map(fn($p) => [
+            'id' => (int)$p['id'], 'name' => $p['name'],
+            'unitsPerBox' => isset($p['units_per_box']) && $p['units_per_box'] !== null ? (int)$p['units_per_box'] : null,
+        ], $products)) ?>;
 
         /* ---- Grid search ---- */
         function filterGrid() {
@@ -575,17 +601,23 @@ require '../includes/staff_header.php';
             }).join('');
         }
 
+        function productById(pid) {
+            return PRODUCTS.find(function (p) { return p.id === pid; });
+        }
+
         function addTransferRow(productId) {
             const id = 'gtRow' + (++gtRowSeq);
             const row = document.createElement('div');
             row.className = 'gt-row';
             row.id = id;
             row.innerHTML =
-                '<select class="form-select gt-row-product" onchange="updateRowHint(\'' + id + '\')">' + productOptionsHtml(productId) + '</select>' +
+                '<select class="form-select gt-row-product" onchange="updateRowHint(\'' + id + '\'); renderAvailablePanel();">' + productOptionsHtml(productId) + '</select>' +
                 '<input type="number" min="1" class="form-input gt-row-qty" placeholder="Qty">' +
+                '<select class="form-select gt-row-type" onchange="updateRowHint(\'' + id + '\')"><option value="unit">Units</option><option value="box">Boxes</option></select>' +
                 '<button type="button" class="gt-row-del" title="Remove" onclick="removeTransferRow(\'' + id + '\')"><i class="ph ph-x"></i></button>' +
                 '<div class="gt-row-hint"></div>';
             document.getElementById('gtRows').appendChild(row);
+            row.querySelector('.gt-row-qty').addEventListener('input', function () { updateRowHint(id); });
             updateRowHint(id);
             return row;
         }
@@ -595,6 +627,7 @@ require '../includes/staff_header.php';
             const row = document.getElementById(rowId);
             if (row) row.remove();
             if (!rows.children.length) addTransferRow();
+            renderAvailablePanel();
         }
 
         function updateRowHint(rowId) {
@@ -602,11 +635,21 @@ require '../includes/staff_header.php';
             if (!row) return;
             const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
             const lid = parseInt(document.getElementById('gtFrom').value, 10);
+            const type = row.querySelector('.gt-row-type').value;
+            const product = productById(pid);
             const qty = availableQty(pid, lid);
-            const qtyInput = row.querySelector('.gt-row-qty');
-            qtyInput.max = qty > 0 ? qty : '';
-            row.querySelector('.gt-row-hint').innerHTML = qty + ' available at this location' +
-                (qty > 0 ? ' — <button type="button" onclick="useRowMaxQty(\'' + rowId + '\')">use max</button>' : '');
+
+            let hint = qty + ' available at this location';
+            if (qty > 0) hint += ' — <button type="button" onclick="useRowMaxQty(\'' + rowId + '\')">use max</button>';
+            if (type === 'box') {
+                if (product && product.unitsPerBox) {
+                    const enteredQty = parseFloat(row.querySelector('.gt-row-qty').value) || 0;
+                    hint += enteredQty > 0 ? (' &middot; = ' + (enteredQty * product.unitsPerBox) + ' units') : (' &middot; 1 box = ' + product.unitsPerBox + ' units');
+                } else {
+                    hint += ' &middot; <span style="color:var(--kami-warning);">no box size set for this product</span>';
+                }
+            }
+            row.querySelector('.gt-row-hint').innerHTML = hint;
         }
 
         function useRowMaxQty(rowId) {
@@ -614,11 +657,80 @@ require '../includes/staff_header.php';
             if (!row) return;
             const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
             const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            row.querySelector('.gt-row-qty').value = availableQty(pid, lid);
+            const type = row.querySelector('.gt-row-type').value;
+            const product = productById(pid);
+            const available = availableQty(pid, lid);
+            if (type === 'box' && product && product.unitsPerBox) {
+                row.querySelector('.gt-row-qty').value = Math.floor(available / product.unitsPerBox);
+            } else {
+                row.querySelector('.gt-row-qty').value = available;
+            }
+            updateRowHint(rowId);
         }
 
         function updateAvailHints() {
             document.querySelectorAll('#gtRows .gt-row').forEach(function (row) { updateRowHint(row.id); });
+            renderAvailablePanel();
+        }
+
+        /* ---- "Available at this location" panel: see everything you could
+           send before picking, instead of guessing names from a dropdown ---- */
+        function rowProductIdsInUse() {
+            return Array.prototype.map.call(
+                document.querySelectorAll('#gtRows .gt-row-product'),
+                function (sel) { return parseInt(sel.value, 10); }
+            );
+        }
+
+        function renderAvailablePanel() {
+            const lid = parseInt(document.getElementById('gtFrom').value, 10);
+            const fromLoc = LOCATIONS.find(function (l) { return l.id === lid; });
+            document.getElementById('gtAvailFromName').textContent = fromLoc ? fromLoc.name : 'this location';
+
+            const panel = document.getElementById('gtAvailablePanel');
+            const inUse = rowProductIdsInUse();
+            const items = PRODUCTS
+                .map(function (p) { return { product: p, qty: availableQty(p.id, lid) }; })
+                .filter(function (x) { return x.qty > 0; })
+                .sort(function (a, b) { return b.qty - a.qty; });
+
+            if (!items.length) {
+                panel.innerHTML = '<div class="gt-avail-empty">Nothing available at this location.</div>';
+                return;
+            }
+
+            panel.innerHTML = items.map(function (x) {
+                const already = inUse.indexOf(x.product.id) !== -1;
+                return '<div class="gt-avail-row">' +
+                    '<span><span class="gt-avail-name">' + x.product.name.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
+                    '<span class="gt-avail-qty">' + x.qty + ' available</span></span>' +
+                    '<button type="button" class="gt-avail-add-btn' + (already ? ' added' : '') + '" onclick="addOrFocusRow(' + x.product.id + ')">' +
+                    (already ? 'Added' : '+ Add') + '</button>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function addOrFocusRow(productId) {
+            const existingSel = Array.prototype.find.call(
+                document.querySelectorAll('#gtRows .gt-row-product'),
+                function (sel) { return parseInt(sel.value, 10) === productId; }
+            );
+            if (existingSel) {
+                const row = existingSel.closest('.gt-row');
+                row.querySelector('.gt-row-qty').focus();
+                return;
+            }
+            // Reuse the first row if it's still empty/untouched, instead of piling up blank rows.
+            const rows = document.querySelectorAll('#gtRows .gt-row');
+            if (rows.length === 1 && !rows[0].querySelector('.gt-row-qty').value) {
+                rows[0].querySelector('.gt-row-product').value = productId;
+                updateRowHint(rows[0].id);
+                rows[0].querySelector('.gt-row-qty').focus();
+            } else {
+                const row = addTransferRow(productId);
+                row.querySelector('.gt-row-qty').focus();
+            }
+            renderAvailablePanel();
         }
 
         function openGridTransfer(productId, fromLocationId) {
@@ -632,6 +744,7 @@ require '../includes/staff_header.php';
             document.getElementById('gtRows').innerHTML = '';
             gtRowSeq = 0;
             addTransferRow(productId);
+            renderAvailablePanel();
 
             document.getElementById('gtNotes').value = '';
             document.getElementById('gridTransferModal').classList.add('active');
@@ -652,8 +765,9 @@ require '../includes/staff_header.php';
             for (const rowEl of document.querySelectorAll('#gtRows .gt-row')) {
                 const pid = parseInt(rowEl.querySelector('.gt-row-product').value, 10);
                 const qty = parseInt(rowEl.querySelector('.gt-row-qty').value, 10);
+                const unitType = rowEl.querySelector('.gt-row-type').value;
                 if (!qty || qty <= 0) continue;
-                rows.push({ product_id: pid, quantity: qty });
+                rows.push({ product_id: pid, quantity: qty, unit_type: unitType });
             }
             if (!rows.length) {
                 if (window.triggerDynamicIsland) window.triggerDynamicIsland('Nothing To Move', 'Enter a quantity for at least one product.', 'error');

@@ -46,7 +46,7 @@ if (!in_array($current_location_id, array_column($all_locations, 'id'), true)) {
 
 /* ---- products for the dropdown (the whole shared catalog) ---- */
 $products = $pdo->query(
-    "SELECT id, name, sku, stock, buying_price, selling_price FROM products ORDER BY name ASC"
+    "SELECT id, name, sku, stock, buying_price, selling_price, units_per_box FROM products ORDER BY name ASC"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 /* ---- filters ---- */
@@ -153,6 +153,12 @@ require '../includes/staff_header.php';
         table.sheet input.cell::placeholder { color: var(--kami-text-dim); }
         table.sheet td.col-prod { min-width: 240px; }
         table.sheet td.col-num input { text-align: right; }
+        table.sheet td.col-type { padding: 6px 8px; }
+        table.sheet select.cell {
+            width: 100%; box-sizing: border-box; border: none; outline: none; background: transparent;
+            color: var(--kami-text); font: inherit; padding: 8px;
+        }
+        table.sheet .c-type-hint { font-size: 10.5px; color: var(--kami-text-dim); padding: 0 8px 4px; }
 
         /* ---- Product picker dropdown (replaces the native <datalist>) ---- */
         .prod-cell { position: relative; }
@@ -283,8 +289,9 @@ require '../includes/staff_header.php';
                             <tr>
                                 <th class="rownum">#</th>
                                 <th>Product</th>
-                                <th style="width:120px;">Qty Bought</th>
-                                <th style="width:150px;">Restock Price ($)</th>
+                                <th style="width:90px;">Qty</th>
+                                <th style="width:100px;">Sent As</th>
+                                <th style="width:150px;">Restock Price ($/unit)</th>
                                 <th style="width:150px;">Selling Price ($)</th>
                                 <th style="width:44px;"></th>
                             </tr>
@@ -455,11 +462,12 @@ require '../includes/staff_header.php';
     <!-- local SheetJS parser (works offline) for Excel/CSV import -->
     <script src="../assets/js/xlsx.full.min.js"></script>
     <script>
-        /* name(lower) -> {id, name, selling, stock}  for the product picker + price prefill */
+        /* name(lower) -> {id, name, selling, stock, unitsPerBox}  for the product picker + price prefill */
         const PRODUCTS = <?= json_encode(array_reduce($products, function ($a, $p) {
             $a[mb_strtolower($p['name'])] = [
                 'id' => (int)$p['id'], 'name' => $p['name'],
-                'selling' => (float)$p['selling_price'], 'stock' => (int)$p['stock']
+                'selling' => (float)$p['selling_price'], 'stock' => (int)$p['stock'],
+                'unitsPerBox' => isset($p['units_per_box']) && $p['units_per_box'] !== null ? (int)$p['units_per_box'] : null
             ];
             return $a;
         }, [])) ?>;
@@ -476,9 +484,28 @@ require '../includes/staff_header.php';
                 +   '<div class="prod-suggest"></div>'
                 + '</div></td>'
                 + '<td class="col-num"><input class="cell c-qty" type="number" min="0" step="1" placeholder="0"></td>'
+                + '<td class="col-type"><select class="cell c-type">'
+                +   '<option value="unit">Unit</option>'
+                +   '<option value="box">Box</option>'
+                + '</select><div class="c-type-hint"></div></td>'
                 + '<td class="col-num"><input class="cell c-buy" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="col-num"><input class="cell c-sell" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="cell-act"><button type="button" class="row-del" title="Delete row" onclick="removeRow(this)"><i class="ph ph-x"></i></button></td>';
+        }
+
+        function updateTypeHint(tr) {
+            const key = tr.querySelector('.c-prod').value.trim().toLowerCase();
+            const known = PRODUCTS[key];
+            const typeSel = tr.querySelector('.c-type');
+            const hint = tr.querySelector('.c-type-hint');
+            if (typeSel.value === 'box' && known && known.unitsPerBox) {
+                const qty = parseFloat(tr.querySelector('.c-qty').value) || 0;
+                hint.textContent = qty > 0 ? ('= ' + (qty * known.unitsPerBox) + ' units') : ('1 box = ' + known.unitsPerBox + ' units');
+            } else if (typeSel.value === 'box') {
+                hint.textContent = known ? 'no box size set' : 'pick a product first';
+            } else {
+                hint.textContent = '';
+            }
         }
 
         function addRow(vals) {
@@ -492,9 +519,12 @@ require '../includes/staff_header.php';
                 tr.querySelector('.c-sell').value = vals.sell || '';
                 updateNewTag(tr);
             }
+            tr.querySelector('.c-type').addEventListener('change', function () { updateTypeHint(tr); updateSummary(); });
+            updateTypeHint(tr);
             tr.querySelectorAll('input.cell').forEach(function (inp) {
                 inp.addEventListener('input', function () {
                     if (inp.classList.contains('c-prod')) autofillRow(tr);
+                    updateTypeHint(tr);
                     ensureTrailingRow(); renumber(); updateSummary();
                 });
             });
@@ -547,6 +577,7 @@ require '../includes/staff_header.php';
             closeSuggestions(tr);
             updateNewTag(tr);
             autofillRow(tr);
+            updateTypeHint(tr);
             ensureTrailingRow(); renumber(); updateSummary();
             const qtyInp = tr.querySelector('.c-qty');
             if (qtyInp) qtyInp.focus();
@@ -620,14 +651,23 @@ require '../includes/staff_header.php';
             if (known && known.selling > 0 && !sellInp.value) sellInp.value = known.selling.toFixed(2);
         }
 
+        function rowEffectiveUnits(tr) {
+            const q = parseFloat(tr.querySelector('.c-qty').value) || 0;
+            const type = tr.querySelector('.c-type').value;
+            if (type !== 'box') return q;
+            const key = tr.querySelector('.c-prod').value.trim().toLowerCase();
+            const known = PRODUCTS[key];
+            return (known && known.unitsPerBox) ? q * known.unitsPerBox : q;
+        }
+
         function updateSummary() {
             let rows = 0, units = 0, spend = 0;
             Array.prototype.forEach.call(sheetBody.children, function (tr) {
                 if (!rowHasContent(tr)) return;
                 rows++;
-                const q = parseFloat(tr.querySelector('.c-qty').value) || 0;
                 const b = parseFloat(tr.querySelector('.c-buy').value) || 0;
-                units += q; spend += q * b;
+                const effUnits = rowEffectiveUnits(tr);
+                units += effUnits; spend += effUnits * b;
             });
             document.getElementById('sumRows').textContent = rows;
             document.getElementById('sumUnits').textContent = units;
@@ -752,12 +792,14 @@ require '../includes/staff_header.php';
                 const qty  = tr.querySelector('.c-qty').value.trim();
                 const buy  = tr.querySelector('.c-buy').value.trim();
                 const sell = tr.querySelector('.c-sell').value.trim();
+                const unitType = tr.querySelector('.c-type').value;
                 if (!product && !qty && !buy && !sell) return;
                 const known = PRODUCTS[product.toLowerCase()];
                 out.push({
                     product: product,
                     product_id: known ? known.id : null,
                     qty: qty || 0,
+                    unit_type: unitType,
                     buying_price: buy || 0,
                     selling_price: sell || 0
                 });
