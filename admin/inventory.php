@@ -19,18 +19,9 @@ $branches = $pdo->query("SELECT id, name, is_main FROM branches ORDER BY is_main
 $main_branch_id = (int)($branches[0]['id'] ?? 1);
 foreach ($branches as $b) { if ($b['is_main']) { $main_branch_id = (int)$b['id']; break; } }
 
-$all_locations = $pdo->query("
-    SELECT l.id, l.name, l.is_warehouse, l.branch_id, b.name AS branch_name
-      FROM stock_locations l
-      JOIN branches b ON b.id = l.branch_id
-     ORDER BY b.is_main DESC, l.id ASC
-")->fetchAll(PDO::FETCH_ASSOC);
-
-$warehouse_location_id = null;
-foreach ($all_locations as $l) { if ($l['is_warehouse']) { $warehouse_location_id = (int)$l['id']; break; } }
-if ($warehouse_location_id === null && !empty($all_locations)) {
-    $warehouse_location_id = (int)$all_locations[0]['id'];
-}
+// Big Stock is the only door into the system — every restock (new product's
+// opening stock, or the quick-restock modal) lands there, full stop.
+$warehouse_location_id = (int)($pdo->query("SELECT id FROM stock_locations WHERE is_warehouse = 1 LIMIT 1")->fetchColumn() ?: 0);
 
 /* helper: turn the "availability" form field into [shared, branch_id] */
 function parse_availability(string $availability, int $default_branch_id): array
@@ -63,7 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
     $buying = filter_input(INPUT_POST, 'buying_price', FILTER_VALIDATE_FLOAT);
     $stock = filter_input(INPUT_POST, 'stock', FILTER_VALIDATE_INT);
     $availability = (string)($_POST['availability'] ?? 'shared');
-    $opening_location_id = filter_input(INPUT_POST, 'opening_location_id', FILTER_VALIDATE_INT) ?: $warehouse_location_id;
     if ($buying === false || $buying === null) $buying = 0.0;
     $units_per_box = filter_input(INPUT_POST, 'units_per_box', FILTER_VALIDATE_INT);
     if ($units_per_box !== false && $units_per_box <= 0) $units_per_box = null;
@@ -94,11 +84,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
             $new_pid = (int)$pdo->lastInsertId();
 
             // Seed an opening batch so FIFO + profit tracking work from day one.
-            // Lands wherever the admin chose (defaults to the shared warehouse).
-            if ($stock > 0 && $opening_location_id) {
-                $loc_branch_id = get_location_branch($pdo, $opening_location_id);
-                log_restock($pdo, $loc_branch_id, $new_pid, $stock, (float)$buying, (float)$price, null,
-                    'Opening stock (new product)', (int)$_SESSION['user_id'], $opening_location_id);
+            // Big Stock is the only door into the system — opening stock lands
+            // there too, same as every other restock.
+            if ($stock > 0 && $warehouse_location_id) {
+                log_restock($pdo, get_location_branch($pdo, $warehouse_location_id), $new_pid, $stock, (float)$buying, (float)$price, null,
+                    'Opening stock (new product)', (int)$_SESSION['user_id'], $warehouse_location_id);
                 // log_restock also adds to stock; undo the double-count from the INSERT above.
                 $fix = $pdo->prepare("UPDATE products SET stock = :stock WHERE id = :id");
                 $fix->execute(['stock' => $stock, 'id' => $new_pid]);
@@ -287,11 +277,11 @@ require '../includes/staff_header.php';
         .avail-badge.exclusive { background: var(--kami-warning-bg); color: var(--kami-warning); border: 1px solid var(--kami-warning-border); }
     </style>
 
-        <h1 class="kami-page-title">Inventory Directory</h1>
-        <p class="kami-page-sub">One shared catalog for Ozone Liquor — mark a product Shared to sell it at either branch, or exclusive to just one.</p>
+        <h1 class="kami-page-title">Products</h1>
+        <p class="kami-page-sub">Every product in the catalog — mark one Shared to sell it at either branch, or exclusive to just one.</p>
 
         <div class="avail-note animate-fade-in">
-            <span class="badge badge-info"><?= count($products) ?> Products in catalog</span>
+            <span class="badge badge-info"><?= count($products) ?> Products</span>
             <a href="locations.php" class="btn" style="background:var(--kami-surface-3); color:var(--kami-text);">
                 <i class="ph-bold ph-grid-four"></i> See stock by location →
             </a>
@@ -300,8 +290,7 @@ require '../includes/staff_header.php';
         <div class="card glass live-stock-list animate-fade-in">
                 <div class="card-header" style="border:none; padding:0; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
                     <div>
-                        <h3><i class="ph-bold ph-database"></i> Live Database</h3>
-                        <div class="badge badge-info" style="margin-top: 8px; display: inline-block;"><?= count($products) ?> Premium Listings</div>
+                        <h3><i class="ph-bold ph-package"></i> All Products</h3>
                     </div>
                     <button type="button" class="btn btn-primary" onclick="openAddProductModal()">
                         <i class="ph-bold ph-plus"></i> Add Product
@@ -312,23 +301,23 @@ require '../includes/staff_header.php';
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>SKU (Serial Key)</th>
-                                <th>Product Designation</th>
+                                <th>Product</th>
+                                <th>Selling Price</th>
+                                <th>Stock</th>
+                                <th>SKU</th>
                                 <th>Category</th>
                                 <th>Availability</th>
-                                <th>Buying</th>
-                                <th>Selling</th>
+                                <th>Buying Price</th>
                                 <th>Margin</th>
-                                <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($products)): ?>
                                 <tr>
-                                    <td colspan="9" data-label="Status" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
+                                    <td colspan="9" style="text-align: center; padding: 48px; color: var(--kami-text-dim); display: flex; flex-direction: column; justify-content: center;">
                                         <i class="ph ph-warning-circle" style="font-size: 32px; margin-bottom: 8px;"></i>
-                                        <p>No products logged in database server.</p>
+                                        <p>No products yet.</p>
                                     </td>
                                 </tr>
                             <?php else: ?>
@@ -340,16 +329,16 @@ require '../includes/staff_header.php';
                                     $availability_value = $product['shared'] ? 'shared' : ('branch_' . (int)$product['branch_id']);
                                 ?>
                                     <tr class="hover-scale">
-                                        <td data-label="Name" style="font-weight: 700; font-size: 15px; color: var(--kami-text);">
+                                        <td data-label="Product" style="font-weight: 700; font-size: 15px; color: var(--kami-text);">
                                             <?= htmlspecialchars($product['name']) ?>
                                             <?php if (!empty($product['units_per_box'])): ?>
                                                 <span class="badge badge-info" style="font-size: 9px; margin-left: 6px; font-weight: 700;" title="Units per box"><?= (int)$product['units_per_box'] ?>/box</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td data-label="Selling" style="font-weight: 700; color: var(--kami-accent);">
+                                        <td data-label="Selling Price" style="font-weight: 700; color: var(--kami-accent);">
                                             $<?= number_format($p_sell, 2) ?>
                                         </td>
-                                        <td data-label="Status">
+                                        <td data-label="Stock">
                                             <?php if ($product['stock'] <= 5): ?>
                                                 <span class="badge badge-danger"><?= htmlspecialchars((string)$product['stock']) ?> Low Units</span>
                                             <?php else: ?>
@@ -365,7 +354,7 @@ require '../includes/staff_header.php';
                                         <td data-label="Availability" class="row-secondary">
                                             <span class="avail-badge <?= $product['shared'] ? 'shared' : 'exclusive' ?>"><?= availability_label($product, $branches) ?></span>
                                         </td>
-                                        <td data-label="Buying" class="row-secondary" style="color: var(--kami-text-muted);">
+                                        <td data-label="Buying Price" class="row-secondary" style="color: var(--kami-text-muted);">
                                             $<?= number_format($p_buy, 2) ?>
                                         </td>
                                         <td data-label="Margin" class="row-secondary">
@@ -382,7 +371,7 @@ require '../includes/staff_header.php';
                                                 <button type="button" class="btn-icon" title="Restock (Kurungura)" onclick='openRestockModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $p_sell ?>, <?= $product["units_per_box"] !== null ? (int)$product["units_per_box"] : "null" ?>)'>
                                                     <i class="ph ph-shopping-cart-simple"></i>
                                                 </button>
-                                                <button type="button" class="btn-icon" title="Edit Metrics" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>, <?= htmlspecialchars(json_encode($availability_value), ENT_QUOTES, "UTF-8") ?>, <?= $product["units_per_box"] !== null ? (int)$product["units_per_box"] : "null" ?>)'>
+                                                <button type="button" class="btn-icon" title="Edit Product" onclick='openEditModal(<?= $product["id"] ?>, <?= htmlspecialchars(json_encode($product["name"]), ENT_QUOTES, "UTF-8") ?>, <?= $product["price"] ?>, <?= $product["stock"] ?>, <?= htmlspecialchars(json_encode($availability_value), ENT_QUOTES, "UTF-8") ?>, <?= $product["units_per_box"] !== null ? (int)$product["units_per_box"] : "null" ?>)'>
                                                     <i class="ph ph-pencil-simple"></i>
                                                 </button>
                                                 <form action="inventory.php" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this product?');">
@@ -407,7 +396,7 @@ require '../includes/staff_header.php';
     <div class="modal-overlay-ui" id="addProductModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="ph-bold ph-plus-circle"></i> Provision Product</h3>
+                <h3><i class="ph-bold ph-plus-circle"></i> Add Product</h3>
                 <button class="modal-close" onclick="closeAddProductModal()"><i class="ph ph-x"></i></button>
             </div>
 
@@ -459,16 +448,7 @@ require '../includes/staff_header.php';
                     <label class="form-label">Units Per Box <span style="color:var(--kami-text-dim);font-weight:400;">(optional — leave blank if never sold/sent by the box)</span></label>
                     <input type="number" min="1" step="1" name="units_per_box" class="form-input" placeholder="e.g. 24">
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Where does this stock land?</label>
-                    <select name="opening_location_id" class="form-select">
-                        <?php foreach ($all_locations as $l): ?>
-                            <option value="<?= (int)$l['id'] ?>" <?= (int)$l['id'] === $warehouse_location_id ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($l['name']) ?> (<?= htmlspecialchars($l['branch_name']) ?><?= $l['is_warehouse'] ? ' — warehouse' : '' ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <p style="font-size: 12.5px; color: var(--kami-text-dim); margin: -8px 0 4px;">Opening stock lands in Big Stock, same as every restock.</p>
 
                 <button type="submit" name="add_product" class="btn btn-primary btn-block" style="margin-top: 8px;">
                     <i class="ph-bold ph-floppy-disk"></i> <span>Save Product</span>
@@ -480,7 +460,7 @@ require '../includes/staff_header.php';
     <div class="modal-overlay-ui" id="editModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Adjust Metrics</h3>
+                <h3>Edit Product</h3>
                 <button class="modal-close" onclick="closeEditModal()"><i class="ph ph-x"></i></button>
             </div>
             <p id="editProductName" style="color: var(--kami-text-muted); margin-bottom: 20px; font-weight: 600;"></p>
@@ -489,11 +469,11 @@ require '../includes/staff_header.php';
                 <input type="hidden" name="edit_id" id="editIdInput">
 
                 <div class="form-group">
-                    <label class="form-label">Update Price ($)</label>
+                    <label class="form-label">Selling Price ($)</label>
                     <input type="number" step="0.01" name="edit_price" id="editPriceInput" class="form-input" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Adjust Stock (company-wide total)</label>
+                    <label class="form-label">Stock (total across both branches)</label>
                     <input type="number" name="edit_stock" id="editStockInput" class="form-input" required>
                 </div>
                 <div class="form-group">
@@ -511,7 +491,7 @@ require '../includes/staff_header.php';
                 </div>
 
                 <button type="submit" name="update_product" class="btn btn-primary btn-block" style="margin-top: 16px;">
-                    Confirm Adjustment
+                    Save Changes
                 </button>
             </form>
         </div>
@@ -528,16 +508,8 @@ require '../includes/staff_header.php';
             <form id="quickRestockForm" onsubmit="return submitQuickRestock(event)">
                 <input type="hidden" name="ajax" value="1">
                 <input type="hidden" name="product_id" id="rsModalPid">
-                <div class="form-group">
-                    <label class="form-label">Location</label>
-                    <select name="location_id" id="rsModalLocation" class="form-select" required>
-                        <?php foreach ($all_locations as $l): ?>
-                            <option value="<?= (int)$l['id'] ?>" <?= (int)$l['id'] === $warehouse_location_id ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($l['name']) ?> (<?= htmlspecialchars($l['branch_name']) ?><?= $l['is_warehouse'] ? ' — warehouse' : '' ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <input type="hidden" name="location_id" value="<?= $warehouse_location_id ?>">
+                <p style="font-size: 12.5px; color: var(--kami-text-dim); margin: -4px 0 16px;">Restocking into <strong style="color:var(--kami-text);">Big Stock</strong>.</p>
                 <div class="form-row-grid">
                     <div class="form-group">
                         <label class="form-label">Quantity Bought</label>
@@ -648,12 +620,12 @@ require '../includes/staff_header.php';
 
         <?php if ($success_msg): ?>
             document.addEventListener('DOMContentLoaded', () => {
-                if(window.triggerDynamicIsland) window.triggerDynamicIsland('Catalog Synchronized', '<?= htmlspecialchars($success_msg) ?>', 'success');
+                if(window.triggerDynamicIsland) window.triggerDynamicIsland('Saved', '<?= htmlspecialchars($success_msg) ?>', 'success');
             });
         <?php endif; ?>
         <?php if ($error_msg): ?>
             document.addEventListener('DOMContentLoaded', () => {
-                if(window.triggerDynamicIsland) window.triggerDynamicIsland('Filing Violation', '<?= htmlspecialchars($error_msg) ?>', 'error');
+                if(window.triggerDynamicIsland) window.triggerDynamicIsland('Error', '<?= htmlspecialchars($error_msg) ?>', 'error');
             });
         <?php endif; ?>
     </script>

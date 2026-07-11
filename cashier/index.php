@@ -19,6 +19,11 @@ if (!$branch_id) {
     $branch_id = $mainBranch ? (int)$mainBranch : 1;
 }
 
+// Live/table ordering (Recall Table) only exists at Main Branch — same gate
+// used in staff_header.php, dashboard.php and live_orders.php itself.
+$mainBranchId = (int)($pdo->query("SELECT id FROM branches WHERE is_main = 1 ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1);
+$showLiveOrdering = $branch_id === $mainBranchId;
+
 // The Sale page only ever sells from the two sellable shelves — Hanging and
 // Fridge. Shop Arrivals (holding, not yet classified) and Big Stock
 // (warehouse) never appear here.
@@ -401,9 +406,11 @@ require '../includes/staff_header.php';
             <div class="card-header" style="border:none; padding:0; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
                 <h3><i class="ph-bold ph-shopping-cart-simple" style="color: var(--kami-accent);"></i> Active Basket</h3>
                 <div style="display: flex; gap: 8px;">
+                    <?php if ($showLiveOrdering): ?>
                     <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.1); color: var(--kami-accent); border: 1px solid var(--kami-accent-border);" onclick="openRecallModal()">
                         <i class="ph-bold ph-bell-ringing"></i> Recall Table
                     </button>
+                    <?php endif; ?>
                     <button class="btn btn-secondary btn-sm" onclick="clearCart()">Clear</button>
                 </div>
             </div>

@@ -113,15 +113,17 @@ if ($action === 'batch_save') {
         respond(false, 'There are no rows to save.');
     }
 
-    // Products are one shared catalog now — every restock lands in a real,
-    // named location (defaults to the warehouse), and that location's own
-    // branch is what the new batches get stamped with.
+    // Big Stock is the only door into the system — every restock lands
+    // there, no exceptions.
     $location_id = filter_input(INPUT_POST, 'location_id', FILTER_VALIDATE_INT);
     if (!$location_id) {
         respond(false, 'Please select which location this restock is for.');
     }
     try {
         $branch_id = get_location_branch($pdo, $location_id);
+        if (!get_location_flags($pdo, $location_id)['is_warehouse']) {
+            respond(false, 'Restocking can only go into Big Stock (the warehouse).');
+        }
     } catch (InvalidArgumentException $e) {
         respond(false, 'That location no longer exists.');
     }
@@ -219,10 +221,12 @@ try {
         throw new RuntimeException('Selected product does not exist.');
     }
 
-    // Every restock lands in a real, named location (any product can restock
-    // into any location — e.g. straight into the shared warehouse); that
-    // location's own branch is what the new batch gets stamped with.
+    // Big Stock is the only door into the system — every restock lands
+    // there, no exceptions.
     $branch_id = get_location_branch($pdo, $location_id);
+    if (!get_location_flags($pdo, $location_id)['is_warehouse']) {
+        throw new RuntimeException('Restocking can only go into Big Stock (the warehouse).');
+    }
 
     $units = resolve_box_quantity($pdo, $product_id, $quantity, $unit_type);
     $batch_id = log_restock($pdo, $branch_id, $product_id, $units, (float)$buying, (float)$selling, $purchased_at, $notes, $user_id, $location_id);

@@ -5,9 +5,16 @@ declare(strict_types=1);
 // Ensure the server responds with JSON so our JavaScript frontend understands it
 header('Content-Type: application/json');
 
-// Pull in your database connection 
+// Pull in your database connection
 // (Assuming your connection variable is $pdo and lives in config/db.php)
-require_once '../config/db.php'; 
+require_once '../config/db.php';
+
+// QR ordering is temporarily paused (orders placed here aren't reliably
+// tagged to a branch yet, see qr_orders.branch_id). Refuse every submission
+// server-side — no order can be created through this endpoint right now,
+// even by someone posting to it directly. Nothing below this point runs.
+echo json_encode(['success' => false, 'error' => 'Ordering is temporarily unavailable. Please order at the counter.']);
+exit();
 
 // 1. Catch the JSON payload sent by the frontend
 $jsonPayload = file_get_contents('php://input');

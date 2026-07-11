@@ -18,31 +18,21 @@ if (!isset($_SESSION['logged_in']) || ($_SESSION['role'] ?? '') !== 'admin') {
 require_once '../config/db.php';
 require_once '../includes/stock_functions.php';
 
-/* ---- location context: every restock lands in a real, named location
-        (defaults to the shared warehouse). Products are one shared catalog,
-        so there's no branch switcher here anymore — just pick where the
-        stock physically lands. ---- */
-$all_locations = $pdo->query("
-    SELECT l.id, l.name, l.is_warehouse, l.branch_id, b.name AS branch_name
+/* ---- Big Stock is the only door into the system — every restock lands
+        there, full stop. No location picker; nothing to choose. ---- */
+$warehouse = $pdo->query("
+    SELECT l.id, l.name, b.name AS branch_name
       FROM stock_locations l
       JOIN branches b ON b.id = l.branch_id
-     ORDER BY b.is_main DESC, l.id ASC
-")->fetchAll(PDO::FETCH_ASSOC);
+     WHERE l.is_warehouse = 1
+     LIMIT 1
+")->fetch(PDO::FETCH_ASSOC);
 
-$warehouse_location_id = null;
-foreach ($all_locations as $l) { if ($l['is_warehouse']) { $warehouse_location_id = (int)$l['id']; break; } }
-if ($warehouse_location_id === null && !empty($all_locations)) {
-    $warehouse_location_id = (int)$all_locations[0]['id'];
+if ($warehouse === false) {
+    die('No warehouse location is configured. Ask an admin to flag one in Stock Locations.');
 }
-
-$requested_location = filter_input(INPUT_GET, 'location', FILTER_VALIDATE_INT);
-if ($requested_location) {
-    $_SESSION['admin_restock_location_id'] = $requested_location;
-}
-$current_location_id = (int)($_SESSION['admin_restock_location_id'] ?? $warehouse_location_id ?? 0);
-if (!in_array($current_location_id, array_column($all_locations, 'id'), true)) {
-    $current_location_id = (int)($warehouse_location_id ?? ($all_locations[0]['id'] ?? 0));
-}
+$warehouse_location_id = (int)$warehouse['id'];
+$current_location_id = $warehouse_location_id;
 
 /* ---- products for the dropdown (the whole shared catalog) ---- */
 $products = $pdo->query(
@@ -153,12 +143,16 @@ require '../includes/staff_header.php';
         table.sheet input.cell::placeholder { color: var(--kami-text-dim); }
         table.sheet td.col-prod { min-width: 240px; }
         table.sheet td.col-num input { text-align: right; }
-        table.sheet td.col-type { padding: 6px 8px; }
-        table.sheet select.cell {
-            width: 100%; box-sizing: border-box; border: none; outline: none; background: transparent;
-            color: var(--kami-text); font: inherit; padding: 8px;
+        table.sheet td.col-type { padding: 8px; text-align: center; }
+        table.sheet .c-type-btn {
+            border: 1px solid var(--kami-border); background: var(--kami-surface-3); color: var(--kami-text-dim);
+            border-radius: var(--kami-radius-full); padding: 6px 14px; font-size: 12.5px; font-weight: 700;
+            cursor: pointer;
         }
-        table.sheet .c-type-hint { font-size: 10.5px; color: var(--kami-text-dim); padding: 0 8px 4px; }
+        table.sheet .c-type-btn:not(:disabled):hover { border-color: var(--kami-accent-border); color: var(--kami-accent); }
+        table.sheet .c-type-btn[data-type="box"] { background: var(--kami-accent-bg); border-color: var(--kami-accent-border); color: var(--kami-accent); }
+        table.sheet .c-type-btn:disabled { cursor: default; opacity: 0.55; }
+        table.sheet .c-type-hint { font-size: 10.5px; color: var(--kami-text-dim); margin-top: 4px; }
 
         /* ---- Product picker dropdown (replaces the native <datalist>) ---- */
         .prod-cell { position: relative; }
@@ -241,16 +235,9 @@ require '../includes/staff_header.php';
         <p class="kami-page-sub">Record every stock purchase as its own batch — cost, retail price and remaining units, kept per batch so you always know your margin.</p>
 
         <div class="branch-switcher animate-fade-in">
-            <label class="form-label" for="locationSwitch" style="margin:0;">Restocking into</label>
-            <select id="locationSwitch" class="form-select" onchange="location.href='restock.php?location='+this.value">
-                <?php foreach ($all_locations as $loc): ?>
-                    <option value="<?= (int)$loc['id'] ?>" <?= $current_location_id === (int)$loc['id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($loc['name']) ?> (<?= htmlspecialchars($loc['branch_name']) ?><?= $loc['is_warehouse'] ? ' — warehouse' : '' ?>)
-                    </option>
-                <?php endforeach; ?>
-            </select>
+            <span class="form-label" style="margin:0;">Restocking into <strong style="color:var(--kami-text);"><?= htmlspecialchars($warehouse['name']) ?> (<?= htmlspecialchars($warehouse['branch_name']) ?>)</strong></span>
             <a href="<?= $filter_all_locations ? 'restock.php' : 'restock.php?all_locations=1' ?>" class="btn" style="background:var(--kami-surface-3); color:var(--kami-text);">
-                <?= $filter_all_locations ? 'Show only this location\'s history' : 'Show history for all locations' ?>
+                <?= $filter_all_locations ? 'Show only Big Stock\'s history' : 'Show history for all locations' ?>
             </a>
         </div>
 
@@ -484,28 +471,43 @@ require '../includes/staff_header.php';
                 +   '<div class="prod-suggest"></div>'
                 + '</div></td>'
                 + '<td class="col-num"><input class="cell c-qty" type="number" min="0" step="1" placeholder="0"></td>'
-                + '<td class="col-type"><select class="cell c-type">'
-                +   '<option value="unit">Unit</option>'
-                +   '<option value="box">Box</option>'
-                + '</select><div class="c-type-hint"></div></td>'
+                + '<td class="col-type"><button type="button" class="c-type-btn" data-type="unit" disabled>Units</button><div class="c-type-hint"></div></td>'
                 + '<td class="col-num"><input class="cell c-buy" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="col-num"><input class="cell c-sell" type="number" min="0" step="0.01" placeholder="0.00"></td>'
                 + '<td class="cell-act"><button type="button" class="row-del" title="Delete row" onclick="removeRow(this)"><i class="ph ph-x"></i></button></td>';
         }
 
+        /* The Unit/Box toggle only ever appears active for products that actually
+           have a box size set — everyone else just sees plain "Units", no clutter. */
         function updateTypeHint(tr) {
             const key = tr.querySelector('.c-prod').value.trim().toLowerCase();
             const known = PRODUCTS[key];
-            const typeSel = tr.querySelector('.c-type');
+            const btn = tr.querySelector('.c-type-btn');
             const hint = tr.querySelector('.c-type-hint');
-            if (typeSel.value === 'box' && known && known.unitsPerBox) {
-                const qty = parseFloat(tr.querySelector('.c-qty').value) || 0;
-                hint.textContent = qty > 0 ? ('= ' + (qty * known.unitsPerBox) + ' units') : ('1 box = ' + known.unitsPerBox + ' units');
-            } else if (typeSel.value === 'box') {
-                hint.textContent = known ? 'no box size set' : 'pick a product first';
+
+            if (known && known.unitsPerBox) {
+                btn.disabled = false;
+                btn.textContent = btn.dataset.type === 'box' ? 'Boxes' : 'Units';
+                if (btn.dataset.type === 'box') {
+                    const qty = parseFloat(tr.querySelector('.c-qty').value) || 0;
+                    hint.textContent = qty > 0 ? ('= ' + (qty * known.unitsPerBox) + ' units') : ('1 box = ' + known.unitsPerBox + ' units');
+                } else {
+                    hint.textContent = '';
+                }
             } else {
+                btn.disabled = true;
+                btn.dataset.type = 'unit';
+                btn.textContent = 'Units';
                 hint.textContent = '';
             }
+        }
+
+        function toggleRowType(btn) {
+            if (btn.disabled) return;
+            btn.dataset.type = btn.dataset.type === 'box' ? 'unit' : 'box';
+            const tr = btn.closest('tr');
+            updateTypeHint(tr);
+            updateSummary();
         }
 
         function addRow(vals) {
@@ -519,7 +521,7 @@ require '../includes/staff_header.php';
                 tr.querySelector('.c-sell').value = vals.sell || '';
                 updateNewTag(tr);
             }
-            tr.querySelector('.c-type').addEventListener('change', function () { updateTypeHint(tr); updateSummary(); });
+            tr.querySelector('.c-type-btn').addEventListener('click', function () { toggleRowType(this); });
             updateTypeHint(tr);
             tr.querySelectorAll('input.cell').forEach(function (inp) {
                 inp.addEventListener('input', function () {
@@ -653,7 +655,7 @@ require '../includes/staff_header.php';
 
         function rowEffectiveUnits(tr) {
             const q = parseFloat(tr.querySelector('.c-qty').value) || 0;
-            const type = tr.querySelector('.c-type').value;
+            const type = tr.querySelector('.c-type-btn').dataset.type;
             if (type !== 'box') return q;
             const key = tr.querySelector('.c-prod').value.trim().toLowerCase();
             const known = PRODUCTS[key];
@@ -792,7 +794,7 @@ require '../includes/staff_header.php';
                 const qty  = tr.querySelector('.c-qty').value.trim();
                 const buy  = tr.querySelector('.c-buy').value.trim();
                 const sell = tr.querySelector('.c-sell').value.trim();
-                const unitType = tr.querySelector('.c-type').value;
+                const unitType = tr.querySelector('.c-type-btn').dataset.type;
                 if (!product && !qty && !buy && !sell) return;
                 const known = PRODUCTS[product.toLowerCase()];
                 out.push({

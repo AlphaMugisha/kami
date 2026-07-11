@@ -1,13 +1,15 @@
 <?php
 /* ================================================================
-   OZONE · locations.php  ("Where's my stock?" — grid + transfers)
+   OZONE · locations.php  ("Where's my stock?" — grid + refills)
    ----------------------------------------------------------------
-   One shared catalog, one shared stock pool, spread across every
-   named location at every branch (Main Branch's warehouse + shelves,
-   Second Branch's counter). This page shows the whole thing as one
-   Product × Location grid, and makes moving stock between ANY two
-   locations — including "refilling" a branch from the warehouse —
-   as few clicks as possible.
+   Admin's view of stock stops at "how much is in Big Stock, and how
+   much has reached each shop" — Product x [Big Stock, Main Branch,
+   Second Branch]. Which shelf it's on inside a shop (Hanging, Fridge,
+   Shop Arrivals) is the cashier's concern, shown on their own
+   inventory/classify pages, not here.
+   The only move this page makes is a refill: Big Stock -> a shop.
+   Every refill lands in that shop's Shop Arrivals and waits for the
+   shop's cashier to confirm it arrived — enforced in transfer_stock().
    ================================================================ */
 
 declare(strict_types=1);
@@ -87,13 +89,35 @@ $all_locations = $pdo->query("
       JOIN branches b ON b.id = l.branch_id
      ORDER BY b.is_main DESC, l.id ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
-$can_transfer = count($all_locations) >= 2;
 
 $locationsByBranch = [];
 foreach ($all_locations as $l) {
     $locationsByBranch[(int)$l['branch_id']]['name'] = $l['branch_name'];
     $locationsByBranch[(int)$l['branch_id']]['locations'][] = $l;
 }
+
+// Admin's grid + refill modal work at branch level, not shelf level: one
+// "Big Stock" column (the warehouse), and one column per branch summing
+// every one of that branch's own locations (Hanging, Fridge, Shop
+// Arrivals — whatever it has). Also resolve each branch's Shop Arrivals
+// location, since a refill always lands there under the hood.
+$warehouseLocationId = 0;
+foreach ($all_locations as $l) { if ($l['is_warehouse']) { $warehouseLocationId = (int)$l['id']; break; } }
+
+$branchShopLocationIds = [];   // branch_id => [location ids, excluding the warehouse]
+$branchArrivalsLocationId = []; // branch_id => its Shop Arrivals location id
+foreach ($all_locations as $l) {
+    $bid = (int)$l['branch_id'];
+    if (!$l['is_warehouse']) {
+        $branchShopLocationIds[$bid][] = (int)$l['id'];
+    }
+    if ($l['is_arrival']) {
+        $branchArrivalsLocationId[$bid] = (int)$l['id'];
+    }
+}
+// Can a refill even happen? Only if there's a warehouse and at least one
+// branch has somewhere for a refill to land.
+$can_transfer = $warehouseLocationId > 0 && !empty($branchArrivalsLocationId);
 
 $products = $pdo->query("SELECT id, sku, name, stock, units_per_box FROM products ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -118,7 +142,7 @@ $recent_transfers = [];
 if ($all_locations) {
     $recent_transfers = $pdo->query("
         SELECT t.*, p.name AS product_name,
-               fl.name AS from_name, fb.name AS from_branch,
+               fl.name AS from_name, fb.name AS from_branch, fl.is_warehouse AS from_is_warehouse,
                tl.name AS to_name, tb.name AS to_branch,
                u.full_name AS by_name
           FROM stock_transfers t
@@ -207,43 +231,34 @@ require '../includes/staff_header.php';
         .avail-hint { font-size: 12.5px; color: var(--kami-text-dim); margin: -10px 0 16px; }
         .avail-hint button { background: none; border: none; color: var(--kami-accent); font-weight: 700; cursor: pointer; padding: 0; font-size: 12.5px; }
 
-        #gridTransferModal .modal-content { max-width: 600px; }
-        .gt-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-        .gt-row { display: grid; grid-template-columns: 1fr 80px 90px 32px; gap: 8px; align-items: start; }
-        .gt-row .gt-row-hint { grid-column: 1 / 2; font-size: 11.5px; color: var(--kami-text-dim); margin-top: 4px; }
-        .gt-row-del { background: none; border: none; color: var(--kami-text-dim); cursor: pointer; font-size: 18px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
-        .gt-row-del:hover { color: #ef4444; }
-        .gt-add-row-btn {
-            display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; margin-bottom: 6px;
-            background: transparent; border: 1px dashed var(--kami-border-strong); border-radius: var(--kami-radius-full);
-            font-size: 13px; font-weight: 700; color: var(--kami-text-muted); cursor: pointer;
-        }
-        .gt-add-row-btn:hover { color: var(--kami-accent); border-color: var(--kami-accent-border); }
+        #gridTransferModal .modal-content { max-width: 560px; }
 
-        .gt-avail-panel {
-            max-height: 160px; overflow-y: auto; margin-bottom: 16px;
+        .gt-list {
+            max-height: 320px; overflow-y: auto; margin-bottom: 6px;
             border: 1px solid var(--kami-border); border-radius: var(--kami-radius-md);
             background: var(--kami-surface-2);
         }
-        .gt-avail-row {
-            display: flex; align-items: center; justify-content: space-between; gap: 10px;
-            padding: 8px 12px; border-bottom: 1px solid var(--kami-border);
+        .gt-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 12px; border-bottom: 1px solid var(--kami-border);
         }
-        .gt-avail-row:last-child { border-bottom: none; }
-        .gt-avail-row .gt-avail-name { font-size: 13px; font-weight: 600; color: var(--kami-text); }
-        .gt-avail-row .gt-avail-qty { font-size: 12px; color: var(--kami-text-muted); margin-left: 8px; }
-        .gt-avail-add-btn {
-            background: var(--kami-accent-bg); border: 1px solid var(--kami-accent-border); color: var(--kami-accent);
-            border-radius: var(--kami-radius-sm); padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+        .gt-item:last-child { border-bottom: none; }
+        .gt-item.gt-item-active { background: var(--kami-accent-bg); }
+        .gt-item-info { flex: 1; min-width: 0; }
+        .gt-item-name { font-size: 13.5px; font-weight: 700; color: var(--kami-text); display: block; }
+        .gt-item-avail { font-size: 11.5px; color: var(--kami-text-dim); }
+        .gt-item-box-note { font-size: 11px; color: var(--kami-accent); margin-left: 6px; }
+        .gt-item-qty {
+            width: 64px; flex-shrink: 0; padding: 8px 10px; text-align: right;
         }
-        .gt-avail-add-btn:hover { filter: brightness(1.1); }
-        .gt-avail-add-btn.added { background: var(--kami-surface-3); border-color: var(--kami-border); color: var(--kami-text-dim); }
-        .gt-avail-empty { padding: 16px 12px; font-size: 12.5px; color: var(--kami-text-dim); text-align: center; }
-
-        @media (max-width: 768px) {
-            .gt-row { grid-template-columns: 1fr; }
-            .gt-row-del { justify-self: end; height: auto; }
+        .gt-item-box-toggle {
+            flex-shrink: 0; width: 34px; height: 34px; border-radius: var(--kami-radius-sm);
+            background: var(--kami-surface-3); border: 1px solid var(--kami-border); color: var(--kami-text-dim);
+            cursor: pointer; font-size: 15px; display: inline-flex; align-items: center; justify-content: center;
         }
+        .gt-item-box-toggle.active { background: var(--kami-accent-bg); border-color: var(--kami-accent-border); color: var(--kami-accent); }
+        .gt-item-box-toggle:hover { filter: brightness(1.1); }
+        .gt-list-empty { padding: 16px 4px; font-size: 12.5px; color: var(--kami-text-dim); text-align: center; }
 
         .empty-state-card { text-align: center; padding: 48px 24px; color: var(--kami-text-dim); }
         .empty-state-card i { font-size: 40px; margin-bottom: 12px; display: block; }
@@ -303,10 +318,10 @@ require '../includes/staff_header.php';
 
         <div class="card glass animate-fade-in">
             <div class="card-header" style="border:none; padding:0; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
-                <h3><i class="ph-bold ph-grid-four"></i> Stock By Location</h3>
+                <h3><i class="ph-bold ph-grid-four"></i> Stock By Branch</h3>
                 <?php if ($can_transfer): ?>
                 <button type="button" class="btn btn-primary" onclick="openGridTransfer()">
-                    <i class="ph-bold ph-arrows-left-right"></i> New Transfer / Refill
+                    <i class="ph-bold ph-truck"></i> Refill A Shop
                 </button>
                 <?php endif; ?>
             </div>
@@ -322,22 +337,18 @@ require '../includes/staff_header.php';
                 <table class="grid-table" id="stockGrid">
                     <thead>
                         <tr>
-                            <th class="col-product" rowspan="2">Product</th>
-                            <?php foreach ($locationsByBranch as $bid => $group): ?>
-                                <th class="branch-group-head" colspan="<?= count($group['locations']) ?>"><?= htmlspecialchars($group['name']) ?></th>
+                            <th class="col-product">Product</th>
+                            <th><i class="ph-fill ph-warehouse" title="Warehouse"></i> Big Stock</th>
+                            <?php foreach ($branches as $b): ?>
+                                <th><?= htmlspecialchars($b['name']) ?></th>
                             <?php endforeach; ?>
-                            <th rowspan="2">Total</th>
-                        </tr>
-                        <tr>
-                            <?php foreach ($all_locations as $loc): ?>
-                                <th><?= htmlspecialchars($loc['name']) ?><?= $loc['is_warehouse'] ? ' <i class="ph-fill ph-warehouse" title="Warehouse"></i>' : ($loc['is_arrival'] ? ' <i class="ph-fill ph-truck" title="Holding — not sellable"></i>' : '') ?></th>
-                            <?php endforeach; ?>
+                            <th>Total</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($products)): ?>
                             <tr>
-                                <td colspan="<?= count($all_locations) + 2 ?>" style="text-align:center; padding:40px; color: var(--kami-text-dim);">
+                                <td colspan="<?= count($branches) + 3 ?>" style="text-align:center; padding:40px; color: var(--kami-text-dim);">
                                     No products in the catalog yet.
                                 </td>
                             </tr>
@@ -348,24 +359,35 @@ require '../includes/staff_header.php';
                                 $trackedTotal = array_sum($rowMap);
                                 $catalogStock = (int)$product['stock'];
                                 $drift = $trackedTotal !== $catalogStock;
+                                $bigStockQty = $rowMap[$warehouseLocationId] ?? 0;
                             ?>
                                 <tr class="grid-row" data-search="<?= htmlspecialchars(mb_strtolower($product['name'] . ' ' . $product['sku'])) ?>">
                                     <td class="col-product">
                                         <div class="prod-name"><?= htmlspecialchars($product['name']) ?></div>
                                         <div class="prod-sku"><?= htmlspecialchars($product['sku']) ?></div>
                                     </td>
-                                    <?php foreach ($all_locations as $loc):
-                                        $lid = (int)$loc['id'];
-                                        $qty = $rowMap[$lid] ?? 0;
+                                    <td>
+                                        <?php if ($bigStockQty > 0 && $can_transfer): ?>
+                                            <button type="button" class="loc-qty-btn <?= $bigStockQty <= 3 ? 'qty-low' : '' ?>"
+                                                onclick="openGridTransfer(<?= $pid ?>)" title="Refill a shop from Big Stock">
+                                                <?= $bigStockQty ?>
+                                            </button>
+                                        <?php elseif ($bigStockQty > 0): ?>
+                                            <span class="loc-qty-btn <?= $bigStockQty <= 3 ? 'qty-low' : '' ?>" style="cursor:default;"><?= $bigStockQty ?></span>
+                                        <?php else: ?>
+                                            <span class="loc-qty-zero">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <?php foreach ($branches as $b):
+                                        $bid = (int)$b['id'];
+                                        $shopTotal = 0;
+                                        foreach (($branchShopLocationIds[$bid] ?? []) as $lid) {
+                                            $shopTotal += $rowMap[$lid] ?? 0;
+                                        }
                                     ?>
                                         <td>
-                                            <?php if ($qty > 0 && $can_transfer): ?>
-                                                <button type="button" class="loc-qty-btn <?= $qty <= 3 ? 'qty-low' : '' ?>"
-                                                    onclick="openGridTransfer(<?= $pid ?>, <?= $lid ?>)">
-                                                    <?= $qty ?>
-                                                </button>
-                                            <?php elseif ($qty > 0): ?>
-                                                <span class="loc-qty-btn <?= $qty <= 3 ? 'qty-low' : '' ?>" style="cursor:default;"><?= $qty ?></span>
+                                            <?php if ($shopTotal > 0): ?>
+                                                <span class="loc-qty-btn <?= $shopTotal <= 3 ? 'qty-low' : '' ?>" style="cursor:default;"><?= $shopTotal ?></span>
                                             <?php else: ?>
                                                 <span class="loc-qty-zero">—</span>
                                             <?php endif; ?>
@@ -413,6 +435,7 @@ require '../includes/staff_header.php';
                             </tr>
                         <?php else: ?>
                             <?php foreach ($recent_transfers as $t):
+                                $is_refill = (bool)$t['from_is_warehouse'];
                                 $is_cross_branch = $t['from_branch'] !== $t['to_branch'];
                             ?>
                                 <tr class="hover-scale" id="transfer-row-<?= (int)$t['id'] ?>">
@@ -420,8 +443,12 @@ require '../includes/staff_header.php';
                                     <td data-label="Product" style="font-weight:700;"><?= htmlspecialchars($t['product_name']) ?></td>
                                     <td data-label="Move">
                                         <?= htmlspecialchars($t['from_name']) ?> <i class="ph-bold ph-arrow-right" style="color:var(--kami-text-dim);"></i> <?= htmlspecialchars($t['to_name']) ?>
-                                        <?php if ($is_cross_branch): ?>
-                                            <span class="badge badge-info" style="font-size:9px; margin-left:6px;">Refill: <?= htmlspecialchars($t['from_branch']) ?> → <?= htmlspecialchars($t['to_branch']) ?></span>
+                                        <?php if ($is_refill): ?>
+                                            <span class="badge badge-info" style="font-size:9px; margin-left:6px;">
+                                                <?= $is_cross_branch
+                                                    ? 'Refill: ' . htmlspecialchars($t['from_branch']) . ' → ' . htmlspecialchars($t['to_branch'])
+                                                    : 'Refill' ?>
+                                            </span>
                                         <?php endif; ?>
                                     </td>
                                     <td data-label="Qty" style="font-weight:800; color: var(--kami-accent);"><?= (int)$t['quantity'] ?></td>
@@ -492,58 +519,42 @@ require '../includes/staff_header.php';
         </div>
     </div>
 
-    <?php if (!empty($all_locations) && $can_transfer): ?>
-    <!-- ===================== TRANSFER MODAL ===================== -->
+    <?php if ($can_transfer): ?>
+    <!-- ===================== REFILL MODAL ===================== -->
     <div class="modal-overlay-ui" id="gridTransferModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="ph-bold ph-arrows-left-right"></i> Move Stock</h3>
+                <h3><i class="ph-bold ph-truck"></i> Refill A Shop</h3>
                 <button class="modal-close" onclick="closeGridTransfer()"><i class="ph ph-x"></i></button>
             </div>
 
             <form id="gridTransferForm" onsubmit="return submitGridTransfer(event)">
-                <div class="form-row-grid">
-                    <div class="form-group">
-                        <label class="form-label">From</label>
-                        <select id="gtFrom" class="form-select" required onchange="updateAvailHints()">
-                            <?php foreach ($locationsByBranch as $bid => $group): ?>
-                                <optgroup label="<?= htmlspecialchars($group['name']) ?>">
-                                    <?php foreach ($group['locations'] as $loc): ?>
-                                        <option value="<?= (int)$loc['id'] ?>"><?= htmlspecialchars($loc['name']) ?></option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">To</label>
-                        <select id="gtTo" class="form-select" required>
-                            <?php foreach ($locationsByBranch as $bid => $group): ?>
-                                <optgroup label="<?= htmlspecialchars($group['name']) ?>">
-                                    <?php foreach ($group['locations'] as $loc): ?>
-                                        <option value="<?= (int)$loc['id'] ?>"><?= htmlspecialchars($loc['name']) ?></option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                            <?php endforeach; ?>
-                        </select>
+                <div class="form-group">
+                    <label class="form-label">From</label>
+                    <div class="form-input" style="background:var(--kami-surface-3); color:var(--kami-text-muted); cursor:default;">
+                        <i class="ph-fill ph-warehouse" style="color:var(--kami-accent);"></i> Big Stock
                     </div>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Send to</label>
+                    <select id="gtTo" class="form-select" required>
+                        <?php foreach ($branches as $b): if (!isset($branchArrivalsLocationId[(int)$b['id']])) continue; ?>
+                            <option value="<?= $branchArrivalsLocationId[(int)$b['id']] ?>"><?= htmlspecialchars($b['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-                <label class="form-label">Available at <span id="gtAvailFromName">this location</span></label>
-                <div id="gtAvailablePanel" class="gt-avail-panel"></div>
-
-                <label class="form-label">Products To Move</label>
-                <div id="gtRows" class="gt-rows"></div>
-                <button type="button" class="gt-add-row-btn" onclick="addTransferRow()">
-                    <i class="ph-bold ph-plus"></i> Add another product
-                </button>
+                <label class="form-label">What are you sending? <span style="color:var(--kami-text-dim);font-weight:400;">— type a quantity next to anything you want to move</span></label>
+                <input type="text" id="gtSearch" class="form-input" placeholder="Search products…" autocomplete="off" oninput="renderTransferList()" style="margin-bottom: 10px;">
+                <div id="gtList" class="gt-list"></div>
+                <p class="gt-list-empty" id="gtListEmpty" style="display:none;">Nothing available in Big Stock.</p>
 
                 <div class="form-group" style="margin-top: 16px;">
                     <label class="form-label">Notes <span style="color:var(--kami-text-dim);font-weight:400;">(optional)</span></label>
                     <input type="text" id="gtNotes" class="form-input" placeholder="Optional" autocomplete="off">
                 </div>
                 <button type="submit" class="btn btn-primary btn-block" id="gtSubmitBtn" style="margin-top: 12px;">
-                    <i class="ph-bold ph-arrows-left-right"></i> <span>Move Stock</span>
+                    <i class="ph-bold ph-truck"></i> <span>Send Refill</span>
                 </button>
             </form>
         </div>
@@ -553,7 +564,7 @@ require '../includes/staff_header.php';
     <script>
         /* productId -> {locationId: qty} */
         const STOCK = <?= json_encode($locationStockMap, JSON_FORCE_OBJECT) ?>;
-        const LOCATIONS = <?= json_encode(array_map(fn($l) => ['id' => (int)$l['id'], 'name' => $l['name']], $all_locations)) ?>;
+        const BIG_STOCK_ID = <?= (int)$warehouseLocationId ?>;
         const PRODUCTS = <?= json_encode(array_map(fn($p) => [
             'id' => (int)$p['id'], 'name' => $p['name'],
             'unitsPerBox' => isset($p['units_per_box']) && $p['units_per_box'] !== null ? (int)$p['units_per_box'] : null,
@@ -580,173 +591,104 @@ require '../includes/staff_header.php';
         function closeRenameLocation() { document.getElementById('renameLocationModal').classList.remove('active'); }
         document.getElementById('renameLocationModal').addEventListener('click', function (e) { if (e.target === this) closeRenameLocation(); });
 
-        <?php if (!empty($all_locations) && $can_transfer): ?>
-        /* ---- Smart transfer modal: click a populated grid cell to pre-fill product + source ---- */
+        <?php if ($can_transfer): ?>
+        /* ---- Refill modal: always FROM Big Stock, TO a shop ---- */
         function availableQty(productId, locationId) {
             const forProduct = STOCK[productId] || {};
             return forProduct[locationId] || 0;
         }
 
-        function pickDefaultTo(fromId) {
-            const other = LOCATIONS.find(function (l) { return l.id !== fromId; });
-            return other ? other.id : fromId;
-        }
-
-        /* ---- Product rows: each row is its own Product select + Qty input ---- */
-        let gtRowSeq = 0;
-
-        function productOptionsHtml(selectedId) {
-            return PRODUCTS.map(function (p) {
-                return '<option value="' + p.id + '"' + (p.id === selectedId ? ' selected' : '') + '>' + p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</option>';
-            }).join('');
-        }
+        /* ---- One simple list: every product you have here, type a quantity
+           next to whatever you're sending. No separate "add row" step, no
+           picking products from a dropdown — the list IS the picker. ---- */
+        let transferState = {}; // productId -> { qty, unitType }
 
         function productById(pid) {
             return PRODUCTS.find(function (p) { return p.id === pid; });
         }
 
-        function addTransferRow(productId) {
-            const id = 'gtRow' + (++gtRowSeq);
-            const row = document.createElement('div');
-            row.className = 'gt-row';
-            row.id = id;
-            row.innerHTML =
-                '<select class="form-select gt-row-product" onchange="updateRowHint(\'' + id + '\'); renderAvailablePanel();">' + productOptionsHtml(productId) + '</select>' +
-                '<input type="number" min="1" class="form-input gt-row-qty" placeholder="Qty">' +
-                '<select class="form-select gt-row-type" onchange="updateRowHint(\'' + id + '\')"><option value="unit">Units</option><option value="box">Boxes</option></select>' +
-                '<button type="button" class="gt-row-del" title="Remove" onclick="removeTransferRow(\'' + id + '\')"><i class="ph ph-x"></i></button>' +
-                '<div class="gt-row-hint"></div>';
-            document.getElementById('gtRows').appendChild(row);
-            row.querySelector('.gt-row-qty').addEventListener('input', function () { updateRowHint(id); });
-            updateRowHint(id);
-            return row;
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
         }
 
-        function removeTransferRow(rowId) {
-            const rows = document.getElementById('gtRows');
-            const row = document.getElementById(rowId);
-            if (row) row.remove();
-            if (!rows.children.length) addTransferRow();
-            renderAvailablePanel();
+        function ensureTransferState(pid) {
+            if (!transferState[pid]) transferState[pid] = { qty: 0, unitType: 'unit' };
+            return transferState[pid];
         }
 
-        function updateRowHint(rowId) {
-            const row = document.getElementById(rowId);
-            if (!row) return;
-            const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
-            const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            const type = row.querySelector('.gt-row-type').value;
+        function itemAvailNote(pid) {
             const product = productById(pid);
-            const qty = availableQty(pid, lid);
-
-            let hint = qty + ' available at this location';
-            if (qty > 0) hint += ' — <button type="button" onclick="useRowMaxQty(\'' + rowId + '\')">use max</button>';
-            if (type === 'box') {
-                if (product && product.unitsPerBox) {
-                    const enteredQty = parseFloat(row.querySelector('.gt-row-qty').value) || 0;
-                    hint += enteredQty > 0 ? (' &middot; = ' + (enteredQty * product.unitsPerBox) + ' units') : (' &middot; 1 box = ' + product.unitsPerBox + ' units');
-                } else {
-                    hint += ' &middot; <span style="color:var(--kami-warning);">no box size set for this product</span>';
-                }
+            const st = ensureTransferState(pid);
+            let note = availableQty(pid, BIG_STOCK_ID) + ' available';
+            if (st.unitType === 'box' && product.unitsPerBox && st.qty > 0) {
+                note += '<span class="gt-item-box-note">= ' + (st.qty * product.unitsPerBox) + ' units</span>';
             }
-            row.querySelector('.gt-row-hint').innerHTML = hint;
+            return note;
         }
 
-        function useRowMaxQty(rowId) {
-            const row = document.getElementById(rowId);
-            if (!row) return;
-            const pid = parseInt(row.querySelector('.gt-row-product').value, 10);
-            const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            const type = row.querySelector('.gt-row-type').value;
-            const product = productById(pid);
-            const available = availableQty(pid, lid);
-            if (type === 'box' && product && product.unitsPerBox) {
-                row.querySelector('.gt-row-qty').value = Math.floor(available / product.unitsPerBox);
-            } else {
-                row.querySelector('.gt-row-qty').value = available;
-            }
-            updateRowHint(rowId);
-        }
+        function renderTransferList() {
+            const query = document.getElementById('gtSearch').value.trim().toLowerCase();
+            const listEl = document.getElementById('gtList');
+            const emptyEl = document.getElementById('gtListEmpty');
 
-        function updateAvailHints() {
-            document.querySelectorAll('#gtRows .gt-row').forEach(function (row) { updateRowHint(row.id); });
-            renderAvailablePanel();
-        }
-
-        /* ---- "Available at this location" panel: see everything you could
-           send before picking, instead of guessing names from a dropdown ---- */
-        function rowProductIdsInUse() {
-            return Array.prototype.map.call(
-                document.querySelectorAll('#gtRows .gt-row-product'),
-                function (sel) { return parseInt(sel.value, 10); }
-            );
-        }
-
-        function renderAvailablePanel() {
-            const lid = parseInt(document.getElementById('gtFrom').value, 10);
-            const fromLoc = LOCATIONS.find(function (l) { return l.id === lid; });
-            document.getElementById('gtAvailFromName').textContent = fromLoc ? fromLoc.name : 'this location';
-
-            const panel = document.getElementById('gtAvailablePanel');
-            const inUse = rowProductIdsInUse();
             const items = PRODUCTS
-                .map(function (p) { return { product: p, qty: availableQty(p.id, lid) }; })
+                .map(function (p) { return { product: p, qty: availableQty(p.id, BIG_STOCK_ID) }; })
                 .filter(function (x) { return x.qty > 0; })
-                .sort(function (a, b) { return b.qty - a.qty; });
+                .filter(function (x) { return !query || x.product.name.toLowerCase().indexOf(query) !== -1; })
+                .sort(function (a, b) { return a.product.name.localeCompare(b.product.name); });
 
             if (!items.length) {
-                panel.innerHTML = '<div class="gt-avail-empty">Nothing available at this location.</div>';
+                listEl.innerHTML = '';
+                emptyEl.style.display = '';
                 return;
             }
+            emptyEl.style.display = 'none';
 
-            panel.innerHTML = items.map(function (x) {
-                const already = inUse.indexOf(x.product.id) !== -1;
-                return '<div class="gt-avail-row">' +
-                    '<span><span class="gt-avail-name">' + x.product.name.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
-                    '<span class="gt-avail-qty">' + x.qty + ' available</span></span>' +
-                    '<button type="button" class="gt-avail-add-btn' + (already ? ' added' : '') + '" onclick="addOrFocusRow(' + x.product.id + ')">' +
-                    (already ? 'Added' : '+ Add') + '</button>' +
+            listEl.innerHTML = items.map(function (x) {
+                const st = ensureTransferState(x.product.id);
+                const boxToggle = x.product.unitsPerBox
+                    ? '<button type="button" class="gt-item-box-toggle' + (st.unitType === 'box' ? ' active' : '') + '" title="Send as boxes (1 box = ' + x.product.unitsPerBox + ' units)" onclick="toggleTransferBoxType(' + x.product.id + ')"><i class="ph-bold ph-package"></i></button>'
+                    : '';
+                return '<div class="gt-item' + (st.qty > 0 ? ' gt-item-active' : '') + '" data-pid="' + x.product.id + '">' +
+                    '<div class="gt-item-info"><span class="gt-item-name">' + escapeHtml(x.product.name) + '</span>' +
+                    '<span class="gt-item-avail">' + itemAvailNote(x.product.id) + '</span></div>' +
+                    '<input type="number" min="0" class="form-input gt-item-qty" placeholder="0" value="' + (st.qty || '') + '" oninput="onTransferQtyInput(' + x.product.id + ', this)">' +
+                    boxToggle +
                     '</div>';
             }).join('');
         }
 
-        function addOrFocusRow(productId) {
-            const existingSel = Array.prototype.find.call(
-                document.querySelectorAll('#gtRows .gt-row-product'),
-                function (sel) { return parseInt(sel.value, 10) === productId; }
-            );
-            if (existingSel) {
-                const row = existingSel.closest('.gt-row');
-                row.querySelector('.gt-row-qty').focus();
-                return;
-            }
-            // Reuse the first row if it's still empty/untouched, instead of piling up blank rows.
-            const rows = document.querySelectorAll('#gtRows .gt-row');
-            if (rows.length === 1 && !rows[0].querySelector('.gt-row-qty').value) {
-                rows[0].querySelector('.gt-row-product').value = productId;
-                updateRowHint(rows[0].id);
-                rows[0].querySelector('.gt-row-qty').focus();
-            } else {
-                const row = addTransferRow(productId);
-                row.querySelector('.gt-row-qty').focus();
-            }
-            renderAvailablePanel();
+        function onTransferQtyInput(pid, input) {
+            const st = ensureTransferState(pid);
+            st.qty = parseInt(input.value, 10) || 0;
+            const item = input.closest('.gt-item');
+            item.classList.toggle('gt-item-active', st.qty > 0);
+            item.querySelector('.gt-item-avail').innerHTML = itemAvailNote(pid);
         }
 
-        function openGridTransfer(productId, fromLocationId) {
-            const fromSel = document.getElementById('gtFrom');
-            const toSel = document.getElementById('gtTo');
+        function toggleTransferBoxType(pid) {
+            const st = ensureTransferState(pid);
+            st.unitType = st.unitType === 'box' ? 'unit' : 'box';
+            renderTransferList();
+        }
 
-            if (fromLocationId !== undefined) fromSel.value = fromLocationId;
-            const from = parseInt(fromSel.value, 10);
-            toSel.value = pickDefaultTo(from);
+        function openGridTransfer(productId) {
+            document.getElementById('gtTo').selectedIndex = 0;
 
-            document.getElementById('gtRows').innerHTML = '';
-            gtRowSeq = 0;
-            addTransferRow(productId);
-            renderAvailablePanel();
-
+            transferState = {};
+            document.getElementById('gtSearch').value = '';
             document.getElementById('gtNotes').value = '';
+            renderTransferList();
+
+            if (productId !== undefined) {
+                const row = document.querySelector('#gtList .gt-item[data-pid="' + productId + '"]');
+                if (row) {
+                    const input = row.querySelector('.gt-item-qty');
+                    input.focus();
+                    input.select();
+                }
+            }
+
             document.getElementById('gridTransferModal').classList.add('active');
         }
         function closeGridTransfer() { document.getElementById('gridTransferModal').classList.remove('active'); }
@@ -754,23 +696,15 @@ require '../includes/staff_header.php';
 
         async function submitGridTransfer(e) {
             e.preventDefault();
-            const from = document.getElementById('gtFrom').value;
             const to = document.getElementById('gtTo').value;
-            if (from === to) {
-                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Invalid Move', 'Source and destination must be different locations.', 'error');
-                return false;
-            }
 
             const rows = [];
-            for (const rowEl of document.querySelectorAll('#gtRows .gt-row')) {
-                const pid = parseInt(rowEl.querySelector('.gt-row-product').value, 10);
-                const qty = parseInt(rowEl.querySelector('.gt-row-qty').value, 10);
-                const unitType = rowEl.querySelector('.gt-row-type').value;
-                if (!qty || qty <= 0) continue;
-                rows.push({ product_id: pid, quantity: qty, unit_type: unitType });
-            }
+            Object.keys(transferState).forEach(function (pid) {
+                const st = transferState[pid];
+                if (st.qty > 0) rows.push({ product_id: parseInt(pid, 10), quantity: st.qty, unit_type: st.unitType });
+            });
             if (!rows.length) {
-                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Nothing To Move', 'Enter a quantity for at least one product.', 'error');
+                if (window.triggerDynamicIsland) window.triggerDynamicIsland('Nothing To Move', 'Type a quantity next to at least one product.', 'error');
                 return false;
             }
 
@@ -781,7 +715,7 @@ require '../includes/staff_header.php';
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        from_location_id: parseInt(from, 10),
+                        from_location_id: BIG_STOCK_ID,
                         to_location_id: parseInt(to, 10),
                         notes: document.getElementById('gtNotes').value,
                         rows: rows,
@@ -790,7 +724,7 @@ require '../includes/staff_header.php';
                 const data = await res.json();
                 if (data.success) {
                     closeGridTransfer();
-                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Stock Moved', data.message, 'success');
+                    if (window.triggerDynamicIsland) window.triggerDynamicIsland('Refill Sent', data.message, 'success');
                     setTimeout(function () { location.reload(); }, 900);
                 } else {
                     if (window.triggerDynamicIsland) window.triggerDynamicIsland('Transfer Failed', data.message || 'Unknown error', 'error');

@@ -118,6 +118,24 @@ require '../includes/staff_header.php';
         .modal-close:hover { color: var(--kami-text); }
         .form-group { margin-bottom: 16px; }
 
+        /* Big, obvious open/close switch — one tap, unmistakable at a glance */
+        .shop-switch-wrap { display: flex; align-items: center; gap: 10px; }
+        .shop-switch { position: relative; display: inline-block; width: 52px; height: 30px; flex-shrink: 0; }
+        .shop-switch-input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+        .shop-switch-track {
+            position: absolute; inset: 0; background: var(--kami-danger-bg, rgba(239,68,68,0.15));
+            border: 1px solid var(--kami-danger-border, rgba(239,68,68,0.4)); border-radius: 999px; transition: 0.2s;
+        }
+        .shop-switch-thumb {
+            position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+            background: #ef4444; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        .shop-switch-input:checked ~ .shop-switch-track { background: var(--kami-success-bg, rgba(16,185,129,0.15)); border-color: var(--kami-success-border, rgba(16,185,129,0.4)); }
+        .shop-switch-input:checked ~ .shop-switch-track .shop-switch-thumb { left: 25px; background: #10b981; }
+        .shop-switch-label { font-size: 13px; font-weight: 800; letter-spacing: 0.03em; }
+        .shop-switch-label.is-open { color: #10b981; }
+        .shop-switch-label.is-closed { color: #ef4444; }
+
         .table-responsive { width: 100%; overflow-x: auto; }
         .data-table { width: 100%; border-collapse: collapse; }
         .data-table th { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--kami-border); color: var(--kami-text-muted); font-size: 13px; font-weight: 600; }
@@ -158,7 +176,7 @@ require '../includes/staff_header.php';
                         <thead>
                             <tr>
                                 <th>Branch</th>
-                                <th>Status</th>
+                                <th>Open / Closed</th>
                                 <th>Products</th>
                                 <th>Sales Logged</th>
                                 <th>Created</th>
@@ -174,36 +192,30 @@ require '../includes/staff_header.php';
                                             <span class="badge badge-info" style="margin-left: 8px;">Main</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td data-label="Status">
-                                        <?php if ($b['is_open']): ?>
-                                            <span class="badge badge-success"><i class="ph-bold ph-storefront"></i> Open</span>
-                                        <?php else: ?>
-                                            <span class="badge badge-danger"><i class="ph-bold ph-lock-simple"></i> Closed</span>
-                                        <?php endif; ?>
+                                    <td data-label="Open / Closed">
+                                        <div class="shop-switch-wrap">
+                                            <label class="shop-switch">
+                                                <input type="checkbox" class="shop-switch-input" <?= $b['is_open'] ? 'checked' : '' ?>
+                                                    onchange="handleShopToggle(this, <?= (int)$b['id'] ?>)">
+                                                <span class="shop-switch-track"><span class="shop-switch-thumb"></span></span>
+                                            </label>
+                                            <span class="shop-switch-label <?= $b['is_open'] ? 'is-open' : 'is-closed' ?>">
+                                                <?= $b['is_open'] ? 'OPEN' : 'CLOSED' ?>
+                                            </span>
+                                        </div>
                                         <?php if ($b['last_action_at']): ?>
-                                            <div style="font-size:11px; color:var(--kami-text-dim); margin-top:4px;">since <?= date('M j, g:i A', strtotime($b['last_action_at'])) ?></div>
+                                            <div style="font-size:11px; color:var(--kami-text-dim); margin-top:6px;">since <?= date('M j, g:i A', strtotime($b['last_action_at'])) ?></div>
                                         <?php endif; ?>
+                                        <form id="shop-form-<?= (int)$b['id'] ?>" action="branches.php" method="POST" style="display:none;">
+                                            <input type="hidden" name="branch_id" value="<?= (int)$b['id'] ?>">
+                                            <input type="hidden" id="shop-action-input-<?= (int)$b['id'] ?>" name="open_shop" value="1">
+                                        </form>
                                     </td>
                                     <td data-label="Products"><?= (int)$b['product_count'] ?></td>
                                     <td data-label="Sales Logged"><?= (int)$b['sale_count'] ?></td>
                                     <td data-label="Created" style="color: var(--kami-text-muted);"><?= date('M j, Y', strtotime($b['created_at'])) ?></td>
                                     <td data-label="Actions">
                                         <div class="action-btns">
-                                            <?php if ($b['is_open']): ?>
-                                                <form action="branches.php" method="POST" style="display:inline;" onsubmit="return confirm('Close this shop for the day? Cashiers here won\'t be able to sign in until you reopen it.');">
-                                                    <input type="hidden" name="branch_id" value="<?= (int)$b['id'] ?>">
-                                                    <button type="submit" name="close_shop" class="btn-icon" title="Close Shop">
-                                                        <i class="ph ph-lock-simple"></i>
-                                                    </button>
-                                                </form>
-                                            <?php else: ?>
-                                                <form action="branches.php" method="POST" style="display:inline;">
-                                                    <input type="hidden" name="branch_id" value="<?= (int)$b['id'] ?>">
-                                                    <button type="submit" name="open_shop" class="btn-icon" title="Open Shop">
-                                                        <i class="ph ph-lock-simple-open"></i>
-                                                    </button>
-                                                </form>
-                                            <?php endif; ?>
                                             <a href="reports.php?branch=<?= (int)$b['id'] ?>" class="btn-icon" title="Today's Report">
                                                 <i class="ph ph-file-text"></i>
                                             </a>
@@ -266,6 +278,16 @@ require '../includes/staff_header.php';
     </div>
 
     <script>
+        function handleShopToggle(checkbox, branchId) {
+            const wantOpen = checkbox.checked;
+            if (!wantOpen && !confirm('Close this shop for the day? Cashiers here won\'t be able to sign in until you reopen it.')) {
+                checkbox.checked = true; // revert the flip, admin backed out
+                return;
+            }
+            document.getElementById('shop-action-input-' + branchId).name = wantOpen ? 'open_shop' : 'close_shop';
+            document.getElementById('shop-form-' + branchId).submit();
+        }
+
         function openAddBranchModal() { document.getElementById('addBranchModal').classList.add('active'); }
         function closeAddBranchModal() { document.getElementById('addBranchModal').classList.remove('active'); }
         document.getElementById('addBranchModal').addEventListener('click', function (e) {

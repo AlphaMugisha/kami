@@ -77,6 +77,8 @@ $menu_categories = [
         .pay-option span { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 500; }
         .btn-checkout { width: 100%; background: var(--text-charcoal); color: #fff; padding: 18px; font-family: var(--font-sans); font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; font-weight: 500; border: none; cursor: pointer; transition: background 0.3s; }
         .btn-checkout:hover { background: var(--accent-gold); }
+        .btn-checkout:disabled { background: #999; color: #eee; cursor: not-allowed; opacity: 0.6; }
+        .btn-checkout:disabled:hover { background: #999; }
 
         .cat-block { scroll-margin-top: 120px; }
         .cat-block.is-hidden { display: none; }
@@ -266,7 +268,7 @@ $menu_categories = [
                 </div>
             </div>
 
-            <button class="btn-checkout" onclick="submitOrder()">Submit to Sommelier</button>
+            <button class="btn-checkout" disabled title="Ordering is temporarily unavailable — please order at the counter.">Ordering Temporarily Unavailable</button>
         </div>
     </div>
 

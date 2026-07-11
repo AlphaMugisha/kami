@@ -134,6 +134,10 @@ try {
         'updated_stock' => $updated_stock_data
     ]);
 
+} catch (InsufficientShelfStockException $e) {
+    // Real shelf stock ran out mid-sale — never a raw exception message to the cashier.
+    $pdo->rollBack();
+    echo json_encode(['success' => false, 'message' => 'Not enough stock on this shelf for this sale.']);
 } catch (Exception $e) {
     // If anything fails, rollback the entire transaction
     $pdo->rollBack();

@@ -15,6 +15,15 @@
 declare(strict_types=1);
 
 /**
+ * Thrown by deduct_stock_fifo() when a specific shelf location doesn't have
+ * enough real batch quantity to cover a sale — the shelf genuinely can't
+ * supply it (e.g. the stock is still unreceived in Shop Arrivals).
+ */
+class InsufficientShelfStockException extends RuntimeException
+{
+}
+
+/**
  * Log a restock batch ("kurungura") for a product.
  *
  * Atomically (within the caller's transaction):
@@ -104,15 +113,25 @@ function log_restock(
  * products.stock — the caller owns that (the POS already does it) so
  * this stays a pure batch-ledger operation.
  *
- * If the live batches cannot cover the demand (legacy / drifted data),
- * the shortfall is charged against the product's cached buying_price so
- * a sale never hard-fails on a stock-count technicality.
+ * If a specific $location_id is given (every real POS sale today), the
+ * batches at that exact shelf must cover the full quantity — if they don't,
+ * this throws InsufficientShelfStockException rather than inventing stock,
+ * since a location was explicitly requested and a shortfall there means the
+ * shelf genuinely doesn't have it (e.g. it's still sitting unreceived in
+ * Shop Arrivals).
+ *
+ * When $location_id is null (legacy branches with no location dimension),
+ * the old graceful fallback still applies: the shortfall is charged against
+ * the product's cached buying_price so a sale never hard-fails on a
+ * stock-count technicality.
  *
  * @return array{
  *   batch_id: int|null,           oldest batch consumed (for sale_items.batch_id)
  *   avg_buying_price: float,      weighted-average cost across consumed batches
  *   allocations: array<int,array{batch_id:int|null,qty:int,buying_price:float}>
  * }
+ * @throws InsufficientShelfStockException if $location_id is given and its
+ *         batches can't cover $quantity
  */
 function deduct_stock_fifo(int $product_id, int $quantity, PDO $pdo, int $branch_id, ?int $location_id = null): array
 {
@@ -154,9 +173,18 @@ function deduct_stock_fifo(int $product_id, int $quantity, PDO $pdo, int $branch
         $needed       -= $take;
     }
 
-    // Graceful fallback for stock not represented by any batch. (Products are
-    // a shared catalog, so this cached price isn't branch-scoped.)
     if ($needed > 0) {
+        if ($location_id !== null) {
+            // A specific shelf was requested and it doesn't have enough — never
+            // invent stock for a location-scoped sale. Let the caller reject it.
+            throw new InsufficientShelfStockException(
+                "Not enough stock at this location for product #{$product_id}: needed {$quantity}, only " . ($quantity - $needed) . " available."
+            );
+        }
+
+        // Graceful fallback for stock not represented by any batch — legacy
+        // branches with no location dimension only. (Products are a shared
+        // catalog, so this cached price isn't branch-scoped.)
         $p = $pdo->prepare("SELECT buying_price FROM products WHERE id = :id");
         $p->execute(['id' => $product_id]);
         $fallback_cost = (float)$p->fetchColumn();
@@ -207,18 +235,23 @@ function get_location_flags(PDO $pdo, int $location_id): array
 /**
  * Move stock between two named locations.
  *
- *  - SAME branch (e.g. Big Stock -> Fridge): lands instantly, exactly like
- *    before — the destination batch is created right away and the transfer
- *    is logged as already `received` (whoever moved it is right there).
+ * The only thing that decides whether a move is instant or pending is
+ * whether it LEAVES THE WAREHOUSE (Big Stock) — not which branch is on
+ * either end. Big Stock is the single door into the system for both shops;
+ * every refill out of it must be confirmed by the receiving shop's cashier,
+ * Main Branch included.
  *
- *  - ACROSS branches (e.g. Main Branch's warehouse "refilling" Second
- *    Branch's shop floor, since products are one shared catalog): the
- *    stock leaves the source immediately (deducted from its batches, same
- *    FIFO ledger a sale uses), but does NOT become sellable at the
- *    destination yet. It sits as a `pending` transfer until someone at the
- *    receiving branch confirms it physically arrived, via receive_transfer().
- *    This is what stands in for a "back room holding shelf" — no separate
- *    location needed, the pending transfer itself IS the holding spot.
+ *  - Source is the warehouse: this is a refill. It must be sent to a
+ *    destination flagged `is_arrival` (Shop Arrivals) — never straight to a
+ *    sellable shelf. Stock leaves the warehouse immediately (deducted from
+ *    its batches, same FIFO ledger a sale uses), but no destination batch is
+ *    created yet. It sits as a `pending` transfer until someone at the
+ *    receiving shop confirms it physically arrived, via receive_transfer().
+ *
+ *  - Source is anything else (Shop Arrivals -> Hanging/Fridge, Hanging <->
+ *    Fridge): lands instantly — the destination batch is created right away
+ *    and the transfer is logged as already `received` (whoever moved it is
+ *    right there).
  *
  * @return array{transfer_id:int, status:string} the logged transfer's id
  *              and status ('received' or 'pending')
@@ -241,14 +274,14 @@ function transfer_stock(
 
     $from_branch_id = get_location_branch($pdo, $from_location_id);
     $to_branch_id   = get_location_branch($pdo, $to_location_id);
-    $is_cross_branch = $from_branch_id !== $to_branch_id;
+    $from_is_warehouse = get_location_flags($pdo, $from_location_id)['is_warehouse'];
 
-    // A cross-branch refill (warehouse -> shop, or shop -> shop) must always
-    // land in the destination's "Shop Arrivals" holding spot first — never
-    // straight onto a sellable shelf like Hanging/Fridge. Same-branch moves
-    // (e.g. classifying Shop Arrivals -> Hanging) are unrestricted.
-    if ($is_cross_branch && !get_location_flags($pdo, $to_location_id)['is_arrival']) {
-        throw new RuntimeException('Cross-branch transfers must be sent to the destination branch\'s Shop Arrivals location.');
+    // A refill straight out of the warehouse must always land in the
+    // destination's "Shop Arrivals" holding spot first — never straight onto
+    // a sellable shelf like Hanging/Fridge. Every other move (classifying
+    // Shop Arrivals -> Hanging, shuffling Hanging <-> Fridge) is unrestricted.
+    if ($from_is_warehouse && !get_location_flags($pdo, $to_location_id)['is_arrival']) {
+        throw new RuntimeException('Stock leaving the warehouse must be sent to the destination\'s Shop Arrivals location.');
     }
 
     // deduct_stock_fifo() has a graceful "charge the shortfall to cached cost"
@@ -274,9 +307,9 @@ function transfer_stock(
 
     $clean_notes = ($notes !== null && trim($notes) !== '') ? trim($notes) : null;
 
-    if (!$is_cross_branch) {
-        // Same branch: land it right away, one batch per cost tier so the
-        // FIFO trail and per-batch cost basis stay accurate at the destination.
+    if (!$from_is_warehouse) {
+        // Not a warehouse refill: land it right away, one batch per cost
+        // tier so the FIFO trail and per-batch cost basis stay accurate.
         $insert = $pdo->prepare(
             "INSERT INTO stock_batches
                 (branch_id, location_id, product_id, quantity_bought, quantity_remaining, buying_price, selling_price, purchased_at, notes, created_by)
@@ -310,8 +343,8 @@ function transfer_stock(
         return ['transfer_id' => (int)$pdo->lastInsertId(), 'status' => 'received'];
     }
 
-    // Cross branch: the weighted-average cost across whatever cost tiers were
-    // consumed becomes the single cost basis for the batch created on receipt.
+    // Warehouse refill: the weighted-average cost across whatever cost tiers
+    // were consumed becomes the single cost basis for the batch created on receipt.
     $avg_buying_price = $fifo['avg_buying_price'];
 
     $audit = $pdo->prepare(
@@ -328,8 +361,8 @@ function transfer_stock(
 }
 
 /**
- * Confirm a pending cross-branch transfer actually arrived: creates the
- * batch that makes it sellable at the destination location, and marks the
+ * Confirm a pending warehouse refill actually arrived: creates the batch
+ * that makes it sellable at the destination location, and marks the
  * transfer received. Only meaningful for transfers still `pending`.
  */
 function receive_transfer(PDO $pdo, int $transfer_id, int $user_id): void
